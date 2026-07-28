@@ -1,0 +1,23 @@
+{
+  "name": "rendering-visualizer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/run-demo.mjs dev",
+    "build": "node scripts/run-demo.mjs build",
+    "preview": "node scripts/run-demo.mjs preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "three": "^0.185.1",
+    "three-gpu-pathtracer": "^0.0.24"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
+  }
+}
