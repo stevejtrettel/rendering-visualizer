@@ -29,14 +29,14 @@ const lerp3 = (a: Tuple3, b: Tuple3, s: number): Tuple3 => [
 ];
 
 // Throughput -> [0,1] brightness, log-scaled per the design language.
-function brightness(betaLuminance: number): number {
+export function brightness(betaLuminance: number): number {
   const floor = 1e-3;
   const b = (Math.log10(Math.max(betaLuminance, floor)) - Math.log10(floor)) / -Math.log10(floor);
   return 0.25 + 0.75 * Math.min(1, b);
 }
 
 // Warm white -> amber, scaled by throughput brightness.
-function segmentColor(betaLuminance: number, delta: boolean): THREE.Color {
+export function segmentColor(betaLuminance: number, delta: boolean): THREE.Color {
   if (delta) return new THREE.Color(1, 1, 1); // specular white
   const b = brightness(betaLuminance);
   return new THREE.Color().setHSL(0.09, 0.85, 0.35 + 0.5 * b);

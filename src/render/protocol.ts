@@ -25,8 +25,9 @@ export interface PassDoneMessage {
   sampleIndex: number;
   samplesPerPixel: number;
   passMillis: number;
-  // sRGB RGBA8 frame, transferred (not copied).
+  // sRGB RGBA8 frame + false-color relative-SE view, both transferred.
   rgba: Uint8ClampedArray<ArrayBuffer>;
+  errorRgba: Uint8ClampedArray<ArrayBuffer>;
 }
 
 export type WorkerToMain = PassDoneMessage;

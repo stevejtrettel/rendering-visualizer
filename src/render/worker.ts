@@ -31,13 +31,15 @@ self.onmessage = (event: MessageEvent<MainToWorker>) => {
     renderPass(scene, integrator, sampler, film, msg.sampleIndex);
     const passMillis = performance.now() - t0;
     const rgba = film.develop();
+    const errorRgba = film.developError();
     const reply: PassDoneMessage = {
       type: 'passDone',
       sampleIndex: msg.sampleIndex,
       samplesPerPixel: msg.sampleIndex + 1,
       passMillis,
       rgba,
+      errorRgba,
     };
-    (self as unknown as Worker).postMessage(reply, [rgba.buffer]);
+    (self as unknown as Worker).postMessage(reply, [rgba.buffer, errorRgba.buffer]);
   }
 };

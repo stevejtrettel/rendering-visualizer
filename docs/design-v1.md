@@ -4,6 +4,11 @@
 `docs/pbrt-notes.md` (implementation references). V1 is three staged
 increments, each with its own review checkpoint.*
 
+**Status**: V1a ✅ shipped 2026-07-28 (`NEEPathTracer`, shadow-ray
+recording, cross-integrator convergence test, `demos/v1-nee`). Display
+work (see `design-viz.md`) was inserted between V1a and V1b by agreement.
+V1b (dielectric + GGX) and V1c (worker pool + Node CLI) pending.
+
 ## Standing principle, codified
 
 **Integrators are never replaced — they accumulate.** Every algorithm the

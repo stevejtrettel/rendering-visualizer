@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>viz-image-forming — an image forming inside the scene</title>
+  <style>
+    body { margin: 0; background: #111; color: #eaeaea;
+           font: 13px/1.5 ui-sans-serif, system-ui, sans-serif; }
+    #bar { padding: 8px 14px; display: flex; gap: 1.5em; align-items: baseline; }
+    #bar .hint { color: #888; }
+    #info { color: #ffaa33; }
+    #layout { display: flex; gap: 2px; }
+    #side { display: flex; flex-direction: column; gap: 8px; padding: 8px; width: 210px; }
+    #preview { cursor: crosshair; image-rendering: pixelated; width: 194px; height: 194px; }
+    #side .row { display: flex; gap: 6px; align-items: center; justify-content: space-between; }
+    #side button, #side select { background: #2a2a2a; color: #eaeaea; border: 1px solid #444;
+                                 border-radius: 4px; padding: 3px 8px; cursor: pointer; }
+    #viz-pane { position: relative; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div id="bar">
+    <strong>viz-image-forming</strong>
+    <span id="info">tracing…</span>
+    <span class="hint">a low-res image forms on the floating plane as samples accumulate — click the preview to highlight a cell and draw its paths</span>
+  </div>
+  <div id="layout">
+    <div id="side">
+      <canvas id="preview" width="160" height="160"></canvas>
+      <div class="row"><span>integrator</span>
+        <select id="integrator">
+          <option value="pt-nee" selected>pt-nee</option>
+          <option value="pt">pt</option>
+        </select>
+      </div>
+      <div class="row"><span>plane res</span>
+        <select id="res">
+          <option value="8">8×8</option>
+          <option value="16" selected>16×16</option>
+          <option value="32">32×32</option>
+        </select>
+      </div>
+      <div class="row"><span>samples</span>
+        <select id="count">
+          <option value="100" selected>100</option>
+          <option value="200">200</option>
+          <option value="400">400</option>
+        </select>
+      </div>
+      <div class="row"><span>dwell</span>
+        <select id="dwell">
+          <option value="0.05">0.05 s</option>
+          <option value="0.1" selected>0.1 s</option>
+          <option value="0.25">0.25 s</option>
+        </select>
+      </div>
+      <div class="row"><span>cell paths</span>
+        <select id="mode">
+          <option value="flip" selected>flip</option>
+          <option value="accumulate">accumulate</option>
+        </select>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="shadow-rays"> shadow rays</label>
+      </div>
+    </div>
+    <div id="viz-pane"></div>
+  </div>
+  <div id="controls"></div>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

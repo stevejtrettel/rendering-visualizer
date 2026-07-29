@@ -72,27 +72,43 @@ the general version then.*
 Failures are always visible — occluded connections, RR deaths, escapes.
 Half the pedagogy lives in the failures.
 
-## Demo build order
+## Demos — status (updated 2026-07-28)
 
-- **D1 — substrate**: timeline, Line2/tube path rendering, the two frame
-  writers, and a scrub/play control strip shared by all demos.
-- **D2 — single-path construction**: one sample grown bounce by bounce,
-  with lobe overlay and all event moments. The atomic narrated animation.
-- **D3 — the pixel as a random variable**: click a pixel → live-accumulating
-  histogram of its sample values, PT and NEE side by side; running mean
-  converging at 1/√N; PT's zero-spike and heavy tail on display. Rendered
-  into its own canvas so it exports like everything else.
-- **D4 — firefly forensics**: click a bright outlier pixel → replay and
-  animate the exact low-pdf path that caused it.
+Built:
+- **D1 — substrate** ✅: timeline (elements are pure functions of t),
+  Line2/tube tiers, webm + PNG-frame writers, shared control strip.
+- **D2 — single-path construction** ✅ (`demos/viz-single-path`): one
+  sample grown bounce by bounce with all event moments.
+- **Flipbook / accumulate** ✅ (`demos/viz-pixel-samples`, added by
+  discussion): one pixel's samples shown whole — flip cycles them at a
+  dwell; accumulate piles them up, age-dimmed. Integrator toggle makes it
+  the variance story (PT: a handful of 100 samples carry light).
+- **Image forming** ✅ (`demos/viz-image-forming`, added by discussion): a
+  low-res (default 16×16) image accumulates on a plane placed exactly on
+  the camera frustum inside the scene, while one highlighted cell draws
+  its paths on the same sample clock.
+
+Decided against:
+- **D3 — pixel histogram**: killed after full design (2026-07-28). The
+  felt version of variance is better served by the flipbook and image
+  plane; the quantitative content (count-vs-energy contrast, SE ∝ N^(−1/2)
+  with different constants, "the median sample is zero") belongs in a
+  STATIC figure. **Kept option**: a trivial per-sample data export
+  (pixel + integrator → JSON/CSV of sample luminances via seed replay,
+  ~ten lines) to feed external plotting when the slide deck wants that
+  figure.
+- **Sampling-lobe overlay**: removed (see design-language note above).
+
+Shelved: **D4 — firefly forensics** (machinery exists via D2 + replay;
+build only if the figure list calls for it).
+
+Pending, to be selected against the talk's figure list:
 - **D5 — convergence scrub + wipe**: film snapshots at exponential spacing
-  (1, 2, 4, … spp) scrubbed by slider; draggable wipe divider between
-  integrators; false-color standard-error view. Requires one Film
-  extension: an 8th per-pixel slot accumulating squared luminance.
+  scrubbed by slider; draggable wipe between integrators; false-color
+  standard-error view (needs an 8th per-pixel Film slot for squared
+  luminance).
 - **D6 — path swarm**: hundreds of concurrent throughput-faded paths; the
   "light transport as flow" establishing shot.
-
-Checkpoints: review after D1+D2 (the animation has to *feel* right before
-anything else builds on it), after D3+D4, after D5+D6.
 
 ## Scene-parity note (agreed 2026-07-28)
 

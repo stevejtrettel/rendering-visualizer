@@ -31,6 +31,24 @@ describe('Film', () => {
     expect(film.pixel(1, 0, { splatScale: 1 })[0]).toBe(5);
   });
 
+  it('tracks per-pixel standard error of the mean', () => {
+    const film = new Film(1, 1);
+    // Two samples of luminance 1 and 3 (gray colors): mean 2,
+    // variance E[x^2] - mean^2 = 5 - 4 = 1, SE = sqrt(1/2).
+    film.addSample([0, 0], new Color(1, 1, 1));
+    film.addSample([0, 0], new Color(3, 3, 3));
+    expect(film.standardError(0, 0)).toBeCloseTo(Math.sqrt(1 / 2), 10);
+    // Identical samples: zero variance.
+    const uniform = new Film(1, 1);
+    uniform.addSample([0, 0], new Color(2, 2, 2));
+    uniform.addSample([0, 0], new Color(2, 2, 2));
+    expect(uniform.standardError(0, 0)).toBeCloseTo(0, 10);
+    // A single sample has no variance estimate.
+    const single = new Film(1, 1);
+    single.addSample([0, 0], new Color(2, 2, 2));
+    expect(single.standardError(0, 0)).toBe(Infinity);
+  });
+
   it('develops to sRGB with correct endpoints', () => {
     const film = new Film(2, 1);
     film.addSample([0, 0], Color.BLACK);
