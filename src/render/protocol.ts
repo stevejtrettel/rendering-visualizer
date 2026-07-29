@@ -14,6 +14,9 @@ export interface InitMessage {
   // Incremented by the caller on re-init (e.g. scene switch); echoed on
   // every passDone so stale in-flight results can be discarded.
   epoch?: number;
+  // 'rgba' (default): developed frames back. 'film': raw accumulated
+  // Float64 film data back — pool mode, merged and developed by the caller.
+  reply?: 'rgba' | 'film';
 }
 
 export interface PassMessage {
@@ -34,4 +37,13 @@ export interface PassDoneMessage {
   errorRgba: Uint8ClampedArray<ArrayBuffer>;
 }
 
-export type WorkerToMain = PassDoneMessage;
+export interface FilmPassMessage {
+  type: 'filmPass';
+  epoch: number;
+  sampleIndex: number;
+  passesDone: number; // this worker's completed pass count
+  passMillis: number;
+  film: Float64Array<ArrayBuffer>; // snapshot of the worker's accumulated film
+}
+
+export type WorkerToMain = PassDoneMessage | FilmPassMessage;

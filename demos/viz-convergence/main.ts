@@ -5,7 +5,8 @@
 // equal-time), toggle image vs false-color error view, drag the divider,
 // export movies. BDPT and MLT drop into this same harness when they exist.
 import { loadSceneRegistry } from '../_shared/scenes';
-import type { IntegratorName, MainToWorker, PassDoneMessage } from '../../src/render/protocol';
+import type { IntegratorName } from '../../src/render/protocol';
+import { WorkerPool } from '../../src/render/pool';
 
 const SCENES = await loadSceneRegistry();
 import { Timeline, type TimelineElement } from '../../src/viz/timeline';
@@ -28,55 +29,53 @@ interface Pane {
   name: IntegratorName;
   label: string;
   snapshots: Snapshot[];
-  cumMillis: number;
   restart: () => void;
 }
-
-const isPowerOfTwo = (n: number) => (n & (n - 1)) === 0;
 
 const infoEl = document.getElementById('info')!;
 const timeline = new Timeline();
 
 let sceneName = 'cornell';
-let sceneEpoch = 0;
 const desc = () => SCENES[sceneName]!;
 
+// Split the machine's cores between the two panes.
+const POOL_SIZE = Math.max(1, Math.floor(((navigator.hardwareConcurrency || 4) - 2) / 2));
+
 function makePane(name: IntegratorName, label: string): Pane {
-  const worker = new Worker(new URL('../../src/render/worker.ts', import.meta.url), { type: 'module' });
-  const post = (m: MainToWorker) => worker.postMessage(m);
-  const pane: Pane = {
-    name,
-    label,
-    snapshots: [],
-    cumMillis: 0,
-    restart: () => {
-      pane.snapshots = [];
-      pane.cumMillis = 0;
-      post({ type: 'init', description: desc(), width: RES, height: RES, seed: SEED, integrator: name, epoch: sceneEpoch });
-      post({ type: 'pass', sampleIndex: 0 });
+  // Snapshots at (roughly) power-of-two total spp; cumMillis is honest
+  // WALL time — with a pool, summed CPU time would overstate the cost.
+  let nextSnap = 1;
+  const pane: Pane = { name, label, snapshots: [], restart: () => {} };
+  const pool = new WorkerPool({
+    size: POOL_SIZE,
+    description: desc(),
+    width: RES,
+    height: RES,
+    seed: SEED,
+    integrator: name,
+    maxSpp: MAX_SPP,
+    onUpdate: (u) => {
+      if (u.totalSpp >= nextSnap || u.totalSpp >= MAX_SPP) {
+        pane.snapshots.push({
+          spp: u.totalSpp,
+          cumMillis: u.wallMillis,
+          rgba: u.film.develop(),
+          errorRgba: u.film.developError(),
+        });
+        while (nextSnap <= u.totalSpp) nextSnap *= 2;
+        onSnapshotsChanged();
+      }
     },
+  });
+  pane.restart = () => {
+    pane.snapshots = [];
+    nextSnap = 1;
+    pool.restart(desc());
   };
-  worker.onmessage = (event: MessageEvent<PassDoneMessage>) => {
-    const msg = event.data;
-    if (msg.epoch !== sceneEpoch) return; // stale result from a previous scene
-    pane.cumMillis += msg.passMillis;
-    if (isPowerOfTwo(msg.samplesPerPixel)) {
-      pane.snapshots.push({
-        spp: msg.samplesPerPixel,
-        cumMillis: pane.cumMillis,
-        rgba: msg.rgba,
-        errorRgba: msg.errorRgba,
-      });
-      onSnapshotsChanged();
-    }
-    if (msg.samplesPerPixel < MAX_SPP) post({ type: 'pass', sampleIndex: msg.samplesPerPixel });
-    else onSnapshotsChanged(); // final state
-  };
-  pane.restart();
   return pane;
 }
 
-const panes = [makePane('pt', 'PT'), makePane('pt-nee', 'NEE')];
+const panes = [makePane('pt', `PT ×${POOL_SIZE}`), makePane('pt-nee', `NEE ×${POOL_SIZE}`)];
 
 // --- The compositor element ---
 type ViewKind = 'image' | 'error';
@@ -202,7 +201,6 @@ for (const name of Object.keys(SCENES)) {
 }
 sceneSelect.addEventListener('change', () => {
   sceneName = sceneSelect.value;
-  sceneEpoch += 1;
   for (const pane of panes) pane.restart();
   timeline.duration = stepCount();
   timeline.setTime(0);

@@ -16,6 +16,8 @@ let film: Film | null = null;
 let sampler: IndependentSampler | null = null;
 let integrator: Integrator = new UnidirectionalPT();
 let epoch = 0;
+let replyMode: 'rgba' | 'film' = 'rgba';
+let passesDone = 0;
 
 self.onmessage = (event: MessageEvent<MainToWorker>) => {
   const msg = event.data;
@@ -25,6 +27,8 @@ self.onmessage = (event: MessageEvent<MainToWorker>) => {
     sampler = new IndependentSampler(msg.seed);
     integrator = msg.integrator === 'pt-nee' ? new NEEPathTracer() : new UnidirectionalPT();
     epoch = msg.epoch ?? 0;
+    replyMode = msg.reply ?? 'rgba';
+    passesDone = 0;
     return;
   }
   if (msg.type === 'pass') {
@@ -32,6 +36,15 @@ self.onmessage = (event: MessageEvent<MainToWorker>) => {
     const t0 = performance.now();
     renderPass(scene, integrator, sampler, film, msg.sampleIndex);
     const passMillis = performance.now() - t0;
+    passesDone += 1;
+    if (replyMode === 'film') {
+      const snapshot = new Float64Array(film.data); // copy, then transfer
+      (self as unknown as Worker).postMessage(
+        { type: 'filmPass', epoch, sampleIndex: msg.sampleIndex, passesDone, passMillis, film: snapshot },
+        [snapshot.buffer],
+      );
+      return;
+    }
     const rgba = film.develop();
     const errorRgba = film.developError();
     const reply: PassDoneMessage = {

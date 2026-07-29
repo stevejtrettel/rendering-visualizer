@@ -49,6 +49,22 @@ describe('Film', () => {
     expect(single.standardError(0, 0)).toBe(Infinity);
   });
 
+  it('films merge by summation: split samples equal a serial render', () => {
+    const serial = new Film(2, 2);
+    const a = new Film(2, 2);
+    const b = new Film(2, 2);
+    const samples: Array<[number, number, number]> = [
+      [0.2, 0.7, 1], [1.6, 0.1, 2], [0.9, 1.8, 0.5], [1.1, 1.2, 3],
+    ];
+    samples.forEach(([x, y, v], i) => {
+      serial.addSample([x, y], new Color(v, v, v));
+      (i % 2 === 0 ? a : b).addSample([x, y], new Color(v, v, v));
+    });
+    const merged = new Film(2, 2);
+    for (let i = 0; i < merged.data.length; i++) merged.data[i] = a.data[i]! + b.data[i]!;
+    for (let i = 0; i < merged.data.length; i++) expect(merged.data[i]).toBe(serial.data[i]);
+  });
+
   it('develops to sRGB with correct endpoints', () => {
     const film = new Film(2, 1);
     film.addSample([0, 0], Color.BLACK);

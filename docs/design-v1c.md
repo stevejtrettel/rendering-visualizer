@@ -73,3 +73,11 @@ BVH (31 ms build for the 6320-tri teapot), brute-force equivalence on 3000
 random rays, `cornell-teapot` scene, all demos scene-switchable. Measured:
 ~0.74 s/pass at 320² with the teapot vs ~0.51 s without (≈ +40%, far
 under the 2–3× worst case). Checkpoint 2 (worker pool) pending.
+
+Checkpoint 2 ✅ shipped 2026-07-29: sample-parallel WorkerPool
+(`src/render/pool.ts`), `reply: 'film'` worker mode, viz-convergence on
+pools with honest wall-clock labels. Measured: NEE 32 spp on
+cornell-teapot in 10.2 s pooled (×3/pane) vs 23.6 s serial — ~2.3× with
+both panes sharing cores. Final films bit-deterministic (ordered
+summation); intermediate snapshots timing-dependent but statistically
+equivalent. V1c complete; Node CLI remains deferred.
