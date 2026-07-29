@@ -3,7 +3,7 @@
 // by seed replay — nothing was stored — and draws them into the scene.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { SceneDescription } from '../../src/core/scene/scene';
+import { CORNELL, VIZ_VIEW } from '../_shared/cornell';
 import { buildScene } from '../../src/core/scene/scene';
 import { IndependentSampler } from '../../src/core/sampler/independent';
 import { pixelSeedKey } from '../../src/core/sampler/sampler';
@@ -19,22 +19,6 @@ const SEED = 0;
 const INSPECT_SAMPLES = 24; // paths re-traced per clicked pixel
 const MAX_PASSES = 512;
 
-// Cornell box: interior [-2,2] x [0,4] x [-2,2], open toward +z. Edge order
-// fixes each quad's normal (e1 x e2) pointing INTO the room.
-const CORNELL: SceneDescription = {
-  camera: { eye: [0, 2, 7.2], lookAt: [0, 2, 0], up: [0, 1, 0], fovDegrees: 40 },
-  primitives: [
-    { name: 'floor',   shape: { kind: 'quad', q: [-2, 0, -2], e1: [0, 0, 4], e2: [4, 0, 0] }, material: { kind: 'lambert', albedo: [0.73, 0.73, 0.73] } },
-    { name: 'ceiling', shape: { kind: 'quad', q: [-2, 4, -2], e1: [4, 0, 0], e2: [0, 0, 4] }, material: { kind: 'lambert', albedo: [0.73, 0.73, 0.73] } },
-    { name: 'back',    shape: { kind: 'quad', q: [-2, 0, -2], e1: [4, 0, 0], e2: [0, 4, 0] }, material: { kind: 'lambert', albedo: [0.73, 0.73, 0.73] } },
-    { name: 'left',    shape: { kind: 'quad', q: [-2, 0, -2], e1: [0, 4, 0], e2: [0, 0, 4] }, material: { kind: 'lambert', albedo: [0.65, 0.05, 0.05] } },
-    { name: 'right',   shape: { kind: 'quad', q: [2, 0, -2],  e1: [0, 0, 4], e2: [0, 4, 0] }, material: { kind: 'lambert', albedo: [0.12, 0.45, 0.15] } },
-    { name: 'light',   shape: { kind: 'quad', q: [-0.8, 3.998, -0.8], e1: [1.6, 0, 0], e2: [0, 0, 1.6] }, material: { kind: 'lambert', albedo: [0, 0, 0] }, emission: { radiance: [14, 14, 14] } },
-    { name: 'ball',    shape: { kind: 'sphere', center: [-0.9, 0.8, -0.6], radius: 0.8 }, material: { kind: 'lambert', albedo: [0.73, 0.73, 0.73] } },
-    { name: 'ballBlue', shape: { kind: 'sphere', center: [0.9, 0.55, 0.6], radius: 0.55 }, material: { kind: 'lambert', albedo: [0.35, 0.45, 0.8] } },
-  ],
-};
-
 // --- Left pane: worker-rendered progressive CPU image ---
 const renderCanvas = document.getElementById('render-canvas') as HTMLCanvasElement;
 renderCanvas.width = WIDTH;
@@ -48,7 +32,7 @@ const worker = new Worker(new URL('../../src/render/worker.ts', import.meta.url)
 const post = (m: MainToWorker) => worker.postMessage(m);
 
 let passTimes: number[] = [];
-post({ type: 'init', description: CORNELL, width: WIDTH, height: HEIGHT, seed: SEED });
+post({ type: 'init', description: CORNELL, width: WIDTH, height: HEIGHT, seed: SEED, integrator: 'pt' });
 post({ type: 'pass', sampleIndex: 0 });
 
 worker.onmessage = (event: MessageEvent<PassDoneMessage>) => {
@@ -74,11 +58,10 @@ const threeScene = new THREE.Scene();
 threeScene.background = new THREE.Color(0x181818);
 threeScene.add(sceneToThree(CORNELL));
 
-const cam = CORNELL.camera;
-const threeCamera = new THREE.PerspectiveCamera(cam.fovDegrees, 1, 0.01, 100);
-threeCamera.position.set(...cam.eye);
+const threeCamera = new THREE.PerspectiveCamera(45, 1, 0.01, 100);
+threeCamera.position.set(...VIZ_VIEW.eye);
 const controls = new OrbitControls(threeCamera, renderer.domElement);
-controls.target.set(...cam.lookAt);
+controls.target.set(...VIZ_VIEW.target);
 controls.update();
 
 let pathsGroup: THREE.Group | null = null;

@@ -28,6 +28,12 @@ export interface PrimitiveDescription {
   shape: ShapeDescription;
   material: MaterialDescription;
   emission?: { radiance: ColorTuple; twoSided?: boolean };
+  // Display-only hints, honored by the three.js adapter and IGNORED by the
+  // CPU renderer. `ghost` draws the primitive as see-through glass so the
+  // visualizer can look into closed scenes. This is a deliberate,
+  // localized break of strict scene parity (agreed 2026-07-28): the two
+  // renderers still consume the same geometry; only its portrayal differs.
+  display?: { ghost?: boolean };
 }
 
 export interface SceneDescription {

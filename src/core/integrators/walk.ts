@@ -19,9 +19,13 @@ import type { PathVertex } from './vertex';
 export interface WalkOptions {
   maxBounces: number; // hard cap on surface vertices
   rrStartDepth: number; // first surface-vertex depth at which RR applies
+  // Draw NEE dimensions per bounce (light-select 1D + light-point 2D) and
+  // store them on the vertex. Part of the integrator's fixed dimension
+  // layout — layouts are per-integrator; replay uses the same integrator.
+  sampleNEE: boolean;
 }
 
-export const DEFAULT_WALK_OPTIONS: WalkOptions = { maxBounces: 32, rrStartDepth: 3 };
+export const DEFAULT_WALK_OPTIONS: WalkOptions = { maxBounces: 32, rrStartDepth: 3, sampleNEE: false };
 
 // Extends `start` (an endpoint vertex) along `ray`. `beta` is the throughput
 // arriving at the first surface hit; `pdfDirW` the solid-angle density of
@@ -64,6 +68,7 @@ export function randomWalk(
       delta: false,
       wo,
       wiSampled: null,
+      neeSamples: null,
       bsdf,
       primitive,
       camera: null,
@@ -72,10 +77,14 @@ export function randomWalk(
     vertices.push(vertex);
 
     // Fixed dimension layout: every bounce draws lobe-select + direction,
-    // whatever the material (principle 2 in the design doc).
+    // whatever the material (principle 2 in the design doc), then the NEE
+    // dimensions when the integrator uses them.
     const uc = sampler.next1D();
     const u2 = sampler.next2D();
     const bs = bsdf.sample(wo, uc, u2, mode);
+    if (options.sampleNEE) {
+      vertex.neeSamples = { select: sampler.next1D(), point: sampler.next2D() };
+    }
     if (!bs) break;
 
     vertex.wiSampled = bs.wi;

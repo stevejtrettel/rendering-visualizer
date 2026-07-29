@@ -5,6 +5,8 @@
 import { buildScene, type Scene } from '../core/scene/scene';
 import { IndependentSampler } from '../core/sampler/independent';
 import { UnidirectionalPT } from '../core/integrators/pt';
+import { NEEPathTracer } from '../core/integrators/pt-nee';
+import type { Integrator } from '../core/integrators/types';
 import { Film } from './film';
 import { renderPass } from './driver';
 import type { MainToWorker, PassDoneMessage } from './protocol';
@@ -12,7 +14,7 @@ import type { MainToWorker, PassDoneMessage } from './protocol';
 let scene: Scene | null = null;
 let film: Film | null = null;
 let sampler: IndependentSampler | null = null;
-const integrator = new UnidirectionalPT();
+let integrator: Integrator = new UnidirectionalPT();
 
 self.onmessage = (event: MessageEvent<MainToWorker>) => {
   const msg = event.data;
@@ -20,6 +22,7 @@ self.onmessage = (event: MessageEvent<MainToWorker>) => {
     scene = buildScene(msg.description, msg.width, msg.height);
     film = new Film(msg.width, msg.height);
     sampler = new IndependentSampler(msg.seed);
+    integrator = msg.integrator === 'pt-nee' ? new NEEPathTracer() : new UnidirectionalPT();
     return;
   }
   if (msg.type === 'pass') {

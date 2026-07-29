@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>viz-single-path — one sample, bounce by bounce</title>
+  <style>
+    body { margin: 0; background: #111; color: #eaeaea;
+           font: 13px/1.5 ui-sans-serif, system-ui, sans-serif; }
+    #bar { padding: 8px 14px; display: flex; gap: 1.5em; align-items: baseline; }
+    #bar .hint { color: #888; }
+    #info { color: #ffaa33; }
+    #layout { display: flex; gap: 2px; }
+    #side { display: flex; flex-direction: column; gap: 8px; padding: 8px; width: 200px; }
+    #preview { cursor: crosshair; image-rendering: pixelated; width: 184px; height: 184px; }
+    #side .row { display: flex; gap: 6px; align-items: center; }
+    #side button, #side select { background: #2a2a2a; color: #eaeaea; border: 1px solid #444;
+                                 border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+    #viz-pane { position: relative; }
+    canvas { display: block; }
+    #controls { }
+  </style>
+</head>
+<body>
+  <div id="bar">
+    <strong>viz-single-path</strong>
+    <span id="info">pick a pixel on the preview…</span>
+    <span class="hint">one PT+NEE sample, grown bounce by bounce — arrow = sampled direction, green/red = shadow rays</span>
+  </div>
+  <div id="layout">
+    <div id="side">
+      <canvas id="preview" width="160" height="160"></canvas>
+      <div class="row">
+        <button id="prev-sample">◀</button>
+        <span id="sample-label">sample 0</span>
+        <button id="next-sample">▶</button>
+      </div>
+      <div class="row">
+        tier:
+        <select id="tier">
+          <option value="lines" selected>lines</option>
+          <option value="tubes">tubes</option>
+        </select>
+      </div>
+    </div>
+    <div id="viz-pane"></div>
+  </div>
+  <div id="controls"></div>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

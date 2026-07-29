@@ -32,6 +32,9 @@ export interface PathVertex {
   wo: Vec3 | null;
   // Sampled outgoing direction (world), null at the path end.
   wiSampled: Vec3 | null;
+  // NEE dimensions drawn by the walk (fixed layout) and consumed by the
+  // phase-2 estimator; null when the integrator doesn't sample NEE.
+  neeSamples: { select: number; point: Sample2D } | null;
   bsdf: SurfaceBSDF | null; // surface vertices only
   primitive: ScenePrimitive | null; // surface vertices only
   camera: PinholeCamera | null; // camera endpoint only
@@ -51,6 +54,7 @@ export function cameraVertex(camera: PinholeCamera, beta: Color): PathVertex {
     delta: false,
     wo: null,
     wiSampled: null,
+    neeSamples: null,
     bsdf: null,
     primitive: null,
     camera,

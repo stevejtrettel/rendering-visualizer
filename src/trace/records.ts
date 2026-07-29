@@ -4,7 +4,7 @@
 import type { PathVertex } from '../core/integrators/vertex';
 import type { Contribution } from '../core/integrators/types';
 import type { SeedKey } from '../core/sampler/sampler';
-import type { Recorder, RREvent } from './recorder';
+import type { Recorder, RREvent, ShadowRayEvent } from './recorder';
 
 export type Tuple3 = readonly [number, number, number];
 
@@ -29,10 +29,19 @@ export interface ContributionRecord {
   value: Tuple3;
 }
 
+export interface ShadowRayRecord {
+  depth: number;
+  from: Tuple3;
+  to: Tuple3;
+  occluded: boolean;
+  blockedAt: Tuple3 | null;
+}
+
 export interface PathRecord {
   key: { seq: readonly number[]; index: number };
   vertices: VertexRecord[];
   rr: RREvent[];
+  shadowRays: ShadowRayRecord[];
   contributions: ContributionRecord[];
 }
 
@@ -61,7 +70,13 @@ export class ArrayRecorder implements Recorder {
   private current: PathRecord | null = null;
 
   beginPath(key: SeedKey): void {
-    this.current = { key: { seq: [...key.seq], index: key.index }, vertices: [], rr: [], contributions: [] };
+    this.current = {
+      key: { seq: [...key.seq], index: key.index },
+      vertices: [],
+      rr: [],
+      shadowRays: [],
+      contributions: [],
+    };
   }
 
   walk(vertices: readonly PathVertex[]): void {
@@ -70,6 +85,16 @@ export class ArrayRecorder implements Recorder {
 
   rr(event: RREvent): void {
     this.current?.rr.push(event);
+  }
+
+  shadowRay(event: ShadowRayEvent): void {
+    this.current?.shadowRays.push({
+      depth: event.depth,
+      from: t3(event.from),
+      to: t3(event.to),
+      occluded: event.occluded,
+      blockedAt: event.blockedAt ? t3(event.blockedAt) : null,
+    });
   }
 
   contribution(c: Contribution): void {

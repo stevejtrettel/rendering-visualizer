@@ -5,17 +5,29 @@ import type { PrimitiveDescription, SceneDescription } from '../core/scene/scene
 
 function primitiveMesh(desc: PrimitiveDescription): THREE.Mesh {
   const emissive = desc.emission != null;
-  const material = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(...desc.material.albedo),
-    roughness: 1,
-    side: THREE.DoubleSide,
-    ...(emissive
-      ? {
-          emissive: new THREE.Color(...desc.emission!.radiance).multiplyScalar(1 / Math.max(...desc.emission!.radiance)),
-          emissiveIntensity: 1.5,
-        }
-      : {}),
-  });
+  // Ghost primitives (display hint): real geometry for the CPU renderer,
+  // drawn here as barely-there glass so we can see into closed scenes.
+  const material = desc.display?.ghost
+    ? new THREE.MeshPhysicalMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.08,
+        roughness: 0.15,
+        metalness: 0,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: new THREE.Color(...desc.material.albedo),
+        roughness: 1,
+        side: THREE.DoubleSide,
+        ...(emissive
+          ? {
+              emissive: new THREE.Color(...desc.emission!.radiance).multiplyScalar(1 / Math.max(...desc.emission!.radiance)),
+              emissiveIntensity: 1.5,
+            }
+          : {}),
+      });
 
   if (desc.shape.kind === 'sphere') {
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(desc.shape.radius, 48, 24), material);

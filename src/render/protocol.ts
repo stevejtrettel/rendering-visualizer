@@ -2,12 +2,15 @@
 // structured-clone-safe: the scene travels as its declarative description.
 import type { SceneDescription } from '../core/scene/scene';
 
+export type IntegratorName = 'pt' | 'pt-nee';
+
 export interface InitMessage {
   type: 'init';
   description: SceneDescription;
   width: number;
   height: number;
   seed: number;
+  integrator: IntegratorName;
 }
 
 export interface PassMessage {
