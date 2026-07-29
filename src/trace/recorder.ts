@@ -9,6 +9,9 @@ export interface RREvent {
   depth: number;
   probability: number;
   survived: boolean;
+  // Which walk rolled the dice — lets the two-subpath (BDPT) view attribute
+  // RR deaths to the right walk. Absent in pre-V2 records: treat as camera.
+  role?: WalkRole;
 }
 
 // An NEE connection attempt — the occluded ones are pedagogically as

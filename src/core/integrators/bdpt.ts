@@ -27,10 +27,31 @@ import { randomWalk, type WalkOptions } from './walk';
 import { misWeight, type MisHeuristic, type MisOverrides, type MisVertex } from './bdpt-mis';
 import type { Contribution, Integrator, Pixel } from './types';
 
+// One strategy's contribution for one pixel sample — the per-(s, t) AOV
+// feed behind the Veach pyramid. For t = 1 the raster is the splat target;
+// otherwise it is the pixel sample's raster.
+export interface StrategyContribution {
+  s: number;
+  t: number;
+  kind: 'sample' | 'splat';
+  raster: Sample2D;
+  weighted: Color;
+  unweighted: Color;
+  weight: number;
+}
+
+// Sink interface rather than Film references: core stays pure — the caller
+// (demo/test) owns per-strategy films and routes these into them.
+export interface StrategySink {
+  add(c: StrategyContribution): void;
+}
+
 export interface BDPTOptions {
   maxBounces: number; // walk cap AND strategy depth cap (s + t - 2)
   rrStartDepth: number;
   heuristic: MisHeuristic; // default power (Veach); balance toggleable
+  // Per-(s, t) AOV feed (weighted AND unweighted) for the pyramid.
+  strategyFilms: StrategySink | null;
   // Debug: for every formed path, evaluate ALL strategies' weights from an
   // independently recomputed density table and assert they sum to 1
   // (condition W1) and match the production ratio-chain weight. Throws.
@@ -47,6 +68,7 @@ export const DEFAULT_BDPT_OPTIONS: BDPTOptions = {
   maxBounces: 32,
   rrStartDepth: 3,
   heuristic: 'power',
+  strategyFilms: null,
   assertWeights: false,
   strategyFilter: null,
   unweighted: false,
@@ -284,6 +306,15 @@ export class BDPT implements Integrator {
         const outcome = connectStrategy(scene, cameraVs, lightVs, s, t, this.options, u);
         if (!outcome) continue;
         if (outcome.connection) recorder.connection({ s, t, ...outcome.connection, weight: outcome.weight });
+        this.options.strategyFilms?.add({
+          s,
+          t,
+          kind: t === 1 ? 'splat' : 'sample',
+          raster: t === 1 ? outcome.raster! : raster,
+          weighted: outcome.unweighted.scale(outcome.weight),
+          unweighted: outcome.unweighted,
+          weight: outcome.weight,
+        });
         const value = outcome.unweighted.scale(this.options.unweighted ? 1 : outcome.weight);
         if (value.isBlack()) continue;
         if (t === 1) {

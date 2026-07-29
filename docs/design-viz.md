@@ -102,13 +102,24 @@ Decided against:
 Shelved: **D4 — firefly forensics** (machinery exists via D2 + replay;
 build only if the figure list calls for it).
 
-Pending, to be selected against the talk's figure list:
-- **D5 — convergence scrub + wipe**: film snapshots at exponential spacing
-  scrubbed by slider; draggable wipe between integrators; false-color
-  standard-error view (needs an 8th per-pixel Film slot for squared
-  luminance).
-- **D6 — path swarm**: hundreds of concurrent throughput-faded paths; the
-  "light transport as flow" establishing shot.
+Built since (V2, 2026-07-29):
+- **D5 — convergence scrub + wipe** ✅ (`demos/viz-convergence`): pooled
+  workers, equal-sample/equal-time scrub, error view, per-pane integrator
+  selects (pt / pt-nee / bdpt).
+- **Strategy pyramid** ✅ (`demos/viz-bdpt-pyramid`): per-(s,t) cells
+  weighted/unweighted, balance/power, in-browser weight-sum residual.
+  Clicking a pixel inside a cell deep-links into `viz-single-path`
+  (`?scene&integrator&px&py&s&t`), which isolates that strategy: the two
+  subpath prefixes grow and only that connection flashes, auto-advancing
+  samples until the strategy forms. Demo-set decision (2026-07-29): demos
+  stay SEPARATE single-purpose test instruments — no consolidation — and
+  link to each other by URL where a jump is pedagogically useful.
+- **D6 — path swarm** ✅ (as the bdpt accumulate view in
+  `demos/viz-pixel-samples`): each sample's light subpath draws in cyan
+  beside the amber camera bundle — transport as flow from both ends.
+
+Pending, to be selected against the talk's figure list (none exists yet;
+dozens of figures expected once drafting starts).
 
 ## Scene-parity note (agreed 2026-07-28)
 

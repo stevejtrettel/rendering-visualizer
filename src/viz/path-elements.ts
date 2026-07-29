@@ -14,11 +14,16 @@ import type { TimelineElement } from './timeline';
 
 export type RenderTier = 'lines' | 'tubes';
 
+// Which subpath a set of elements draws: camera walks in the warm amber
+// language, light walks (BDPT) in cyan.
+export type PathPalette = 'camera' | 'light';
+
 export interface PathStyle {
   tier: RenderTier;
   lineWidth: number; // pixels, lines tier
   tubeRadius: number; // world units at unit brightness, tubes tier
   resolution: THREE.Vector2; // canvas size, required by LineMaterial
+  palette?: PathPalette; // default 'camera'
 }
 
 const v3 = (t: Tuple3) => new THREE.Vector3(t[0], t[1], t[2]);
@@ -35,13 +40,24 @@ export function brightness(betaLuminance: number): number {
   return 0.25 + 0.75 * Math.min(1, b);
 }
 
-// Warm white -> amber, scaled by throughput brightness.
-export function segmentColor(betaLuminance: number, delta: boolean): THREE.Color {
+// Camera: warm white -> amber. Light subpath: cyan. Both scaled by
+// throughput brightness; specular white in either language.
+export function segmentColor(
+  betaLuminance: number,
+  delta: boolean,
+  palette: PathPalette = 'camera',
+): THREE.Color {
   if (delta) return new THREE.Color(1, 1, 1); // specular white
   const b = brightness(betaLuminance);
-  return new THREE.Color().setHSL(0.09, 0.85, 0.35 + 0.5 * b);
+  const hue = palette === 'light' ? 0.52 : 0.09;
+  // Light subpaths carry Le-scaled throughput that pins the brightness ramp;
+  // cap their lightness so the cyan stays saturated instead of washing white.
+  const lightness = 0.35 + 0.5 * b;
+  return new THREE.Color().setHSL(hue, 0.85, palette === 'light' ? Math.min(lightness, 0.6) : lightness);
 }
 
+const DOT_COLOR: Record<PathPalette, number> = { camera: 0xffc070, light: 0x70d8ff };
+const ARROW_COLOR: Record<PathPalette, number> = { camera: 0xffe0b0, light: 0xb0e8ff };
 const SHADOW_OK = new THREE.Color(0x44cc66);
 const SHADOW_BLOCKED = new THREE.Color(0xdd4444);
 
@@ -60,7 +76,7 @@ class SegmentElement implements TimelineElement {
     private readonly color?: THREE.Color,
     private readonly opacity = 1,
   ) {
-    const c = color ?? segmentColor(seg.betaLuminance, delta);
+    const c = color ?? segmentColor(seg.betaLuminance, delta, style.palette ?? 'camera');
     if (style.tier === 'lines') {
       this.lineGeometry = new LineGeometry();
       this.lineGeometry.setPositions([...seg.from, ...seg.from]);
@@ -131,7 +147,8 @@ class MomentElement implements TimelineElement {
     private readonly parent: THREE.Object3D,
   ) {
     parent.add(this.group);
-    const dotColor = m.delta ? 0xffffff : 0xffc070;
+    const palette = style.palette ?? 'camera';
+    const dotColor = m.delta ? 0xffffff : DOT_COLOR[palette];
     this.dot = new THREE.Mesh(
       new THREE.SphereGeometry(0.035, 12, 8),
       new THREE.MeshBasicMaterial({ color: dotColor }),
@@ -141,7 +158,7 @@ class MomentElement implements TimelineElement {
 
     if (!m.delta && m.wiSampled) {
       this.arrow = new THREE.ArrowHelper(
-        v3(m.wiSampled).normalize(), v3(m.p), 0.65, 0xffe0b0, 0.14, 0.07,
+        v3(m.wiSampled).normalize(), v3(m.p), 0.65, ARROW_COLOR[palette], 0.14, 0.07,
       );
       this.group.add(this.arrow);
     }
@@ -260,6 +277,65 @@ class EscapeFade implements TimelineElement {
     const dt = t - this.e.start;
     this.material.opacity = dt < 0 ? 0 : 0.5 * Math.exp(-dt * 1.2);
     this.line.visible = this.material.opacity > 0.01;
+  }
+
+  dispose(): void {
+    this.parent.remove(this.line);
+    this.line.geometry.dispose();
+    this.material.dispose();
+  }
+}
+
+// A BDPT connection attempt: at its moment the segment sweeps from the
+// camera-side endpoint toward the light-side one — green when the two
+// subpaths see each other, red dying at the blocker when they don't — then
+// settles to a faint persistent line so the composed path stays readable.
+export class ConnectionFlash implements TimelineElement {
+  private readonly line: Line2;
+  private readonly material: LineMaterial;
+  private readonly from: Tuple3;
+  private readonly to: Tuple3;
+
+  constructor(
+    connection: { from: Tuple3; to: Tuple3; occluded: boolean; blockedAt: Tuple3 | null },
+    private readonly time: number,
+    style: PathStyle,
+    private readonly parent: THREE.Object3D,
+    private readonly occluded = connection.occluded,
+  ) {
+    this.from = connection.from;
+    this.to = connection.occluded && connection.blockedAt ? connection.blockedAt : connection.to;
+    const g = new LineGeometry();
+    g.setPositions([...this.from, ...this.from]);
+    this.material = new LineMaterial({
+      color: (occluded ? SHADOW_BLOCKED : SHADOW_OK).getHex(),
+      linewidth: style.lineWidth * 0.8,
+      transparent: true,
+      opacity: 0,
+    });
+    this.material.resolution.copy(style.resolution);
+    this.line = new Line2(g, this.material);
+    this.line.visible = false;
+    parent.add(this.line);
+  }
+
+  drawAt(t: number): void {
+    const dt = t - this.time;
+    if (dt < 0) {
+      this.line.visible = false;
+      return;
+    }
+    const sweep = Math.min(1, dt / 0.4);
+    const tip = lerp3(this.from, this.to, sweep);
+    this.line.geometry.dispose();
+    const g = new LineGeometry();
+    g.setPositions([...this.from, ...tip]);
+    this.line.geometry = g;
+    // Full strength through the flash, then settle (blocked ones fade more).
+    const settled = this.occluded ? 0.12 : 0.3;
+    const opacity = dt < 1.2 ? 0.95 : Math.max(settled, 0.95 * Math.exp(-(dt - 1.2) * 2));
+    this.material.opacity = opacity;
+    this.line.visible = true;
   }
 
   dispose(): void {

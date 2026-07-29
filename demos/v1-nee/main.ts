@@ -11,6 +11,7 @@ import { IndependentSampler } from '../../src/core/sampler/independent';
 import { pixelSeedKey } from '../../src/core/sampler/sampler';
 import { UnidirectionalPT } from '../../src/core/integrators/pt';
 import { NEEPathTracer } from '../../src/core/integrators/pt-nee';
+import { BDPT } from '../../src/core/integrators/bdpt';
 import type { Integrator } from '../../src/core/integrators/types';
 import { ArrayRecorder } from '../../src/trace/records';
 import type { IntegratorName, MainToWorker, PassDoneMessage } from '../../src/render/protocol';
@@ -83,6 +84,7 @@ const inspectScene = buildScene(CORNELL, WIDTH, HEIGHT);
 const integrators: Record<IntegratorName, Integrator> = {
   pt: new UnidirectionalPT(),
   'pt-nee': new NEEPathTracer(),
+  bdpt: new BDPT(),
 };
 const inspectSampler = new IndependentSampler(SEED);
 

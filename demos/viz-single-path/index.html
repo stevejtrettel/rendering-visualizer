@@ -24,7 +24,7 @@
   <div id="bar">
     <strong>viz-single-path</strong>
     <span id="info">pick a pixel on the preview…</span>
-    <span class="hint">one PT+NEE sample, grown bounce by bounce — arrow = sampled direction, green/red = shadow rays</span>
+    <span class="hint">one sample, grown bounce by bounce — bdpt grows both subpaths (camera amber, light cyan) and flashes connections green/red</span>
   </div>
   <div id="layout">
     <div id="side">
@@ -33,6 +33,19 @@
         <button id="prev-sample">◀</button>
         <span id="sample-label">sample 0</span>
         <button id="next-sample">▶</button>
+      </div>
+      <div class="row">
+        integrator:
+        <select id="integrator">
+          <option value="pt-nee" selected>pt-nee</option>
+          <option value="bdpt">bdpt</option>
+        </select>
+      </div>
+      <div class="row">
+        strategy:
+        <select id="strategy">
+          <option value="all" selected>all</option>
+        </select>
       </div>
       <div class="row">
         tier:

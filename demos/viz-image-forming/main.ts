@@ -13,6 +13,7 @@ import { IndependentSampler } from '../../src/core/sampler/independent';
 import { pixelSeedKey } from '../../src/core/sampler/sampler';
 import { UnidirectionalPT } from '../../src/core/integrators/pt';
 import { NEEPathTracer } from '../../src/core/integrators/pt-nee';
+import { BDPT } from '../../src/core/integrators/bdpt';
 import type { Integrator } from '../../src/core/integrators/types';
 import { ArrayRecorder, type PathRecord } from '../../src/trace/records';
 import { NULL_RECORDER } from '../../src/trace/recorder';
@@ -77,6 +78,7 @@ threeScene.add(contentGroup);
 const integrators: Record<IntegratorName, Integrator> = {
   pt: new UnidirectionalPT(),
   'pt-nee': new NEEPathTracer(),
+  bdpt: new BDPT(),
 };
 const sampler = new IndependentSampler(SEED);
 const timeline = new Timeline();

@@ -7,9 +7,9 @@ import * as THREE from 'three';
 import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
-import type { PathRecord } from '../trace/records';
+import type { PathRecord, VertexRecord } from '../trace/records';
 import type { TimelineElement } from './timeline';
-import { brightness, segmentColor, type PathStyle } from './path-elements';
+import { brightness, segmentColor, type PathPalette, type PathStyle } from './path-elements';
 
 export type SampleMode = 'flip' | 'accumulate';
 
@@ -49,46 +49,53 @@ class SampleElement implements TimelineElement {
     private readonly parent: THREE.Object3D,
   ) {}
 
+  // One walk as a whole polyline, in its palette's language.
+  private addWalk(g: THREE.Group, vs: readonly VertexRecord[], palette: PathPalette): void {
+    if (vs.length < 2) return;
+    const meanBeta =
+      vs.slice(1).reduce((s, v) => s + (0.2126 * v.beta[0] + 0.7152 * v.beta[1] + 0.0722 * v.beta[2]), 0) /
+      (vs.length - 1);
+    const color = segmentColor(meanBeta, false, palette);
+    if (this.style.tier === 'lines') {
+      const geometry = new LineGeometry();
+      geometry.setPositions(vs.flatMap((v) => [...v.p]));
+      const mat = new LineMaterial({
+        color: color.getHex(),
+        linewidth: this.style.lineWidth * (0.5 + 0.5 * brightness(meanBeta)),
+        transparent: true,
+        opacity: 1,
+      });
+      mat.resolution.copy(this.style.resolution);
+      g.add(new Line2(geometry, mat));
+      this.materials.push({ mat, base: 1 });
+    } else {
+      const curve = new THREE.CurvePath<THREE.Vector3>();
+      for (let i = 1; i < vs.length; i++) {
+        curve.add(new THREE.LineCurve3(
+          new THREE.Vector3(...vs[i - 1]!.p), new THREE.Vector3(...vs[i]!.p),
+        ));
+      }
+      const mat = new THREE.MeshStandardMaterial({
+        color, emissive: color, emissiveIntensity: 0.7, transparent: true, opacity: 1,
+      });
+      g.add(new THREE.Mesh(
+        new THREE.TubeGeometry(curve, (vs.length - 1) * 4, this.style.tubeRadius, 6), mat,
+      ));
+      this.materials.push({ mat, base: 1 });
+    }
+  }
+
   // Geometry is built lazily on first visibility — accumulate mode over
   // hundreds of samples would otherwise pay full construction up front.
   private build(): THREE.Group {
     if (this.group) return this.group;
     const g = new THREE.Group();
-    const vs = this.record.vertices;
 
-    if (vs.length >= 2) {
-      const meanBeta =
-        vs.slice(1).reduce((s, v) => s + (0.2126 * v.beta[0] + 0.7152 * v.beta[1] + 0.0722 * v.beta[2]), 0) /
-        (vs.length - 1);
-      const color = segmentColor(meanBeta, false);
-      if (this.style.tier === 'lines') {
-        const geometry = new LineGeometry();
-        geometry.setPositions(vs.flatMap((v) => [...v.p]));
-        const mat = new LineMaterial({
-          color: color.getHex(),
-          linewidth: this.style.lineWidth * (0.5 + 0.5 * brightness(meanBeta)),
-          transparent: true,
-          opacity: 1,
-        });
-        mat.resolution.copy(this.style.resolution);
-        g.add(new Line2(geometry, mat));
-        this.materials.push({ mat, base: 1 });
-      } else {
-        const curve = new THREE.CurvePath<THREE.Vector3>();
-        for (let i = 1; i < vs.length; i++) {
-          curve.add(new THREE.LineCurve3(
-            new THREE.Vector3(...vs[i - 1]!.p), new THREE.Vector3(...vs[i]!.p),
-          ));
-        }
-        const mat = new THREE.MeshStandardMaterial({
-          color, emissive: color, emissiveIntensity: 0.7, transparent: true, opacity: 1,
-        });
-        g.add(new THREE.Mesh(
-          new THREE.TubeGeometry(curve, (vs.length - 1) * 4, this.style.tubeRadius, 6), mat,
-        ));
-        this.materials.push({ mat, base: 1 });
-      }
-    }
+    this.addWalk(g, this.record.vertices, 'camera');
+    // BDPT records carry a light walk too: the accumulate view becomes the
+    // light swarm — cyan streams growing from the emitter alongside the
+    // amber camera bundle.
+    this.addWalk(g, this.record.lightVertices, 'light');
 
     if (this.cfg.shadowRays) {
       for (const sr of this.record.shadowRays) {

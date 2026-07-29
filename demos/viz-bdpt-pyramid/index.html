@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>viz-bdpt-pyramid — every (s,t) strategy, live</title>
+  <style>
+    body { margin: 0; background: #111; color: #eaeaea;
+           font: 13px/1.5 ui-sans-serif, system-ui, sans-serif; }
+    #bar { padding: 8px 14px; display: flex; gap: 1.5em; align-items: baseline; }
+    #bar .hint { color: #888; }
+    #info { color: #ffaa33; }
+    #info.error { color: #ff5555; font-weight: 600; }
+    #controls { padding: 0 14px 8px; display: flex; gap: 1.5em; align-items: center; }
+    #controls select, #controls input { background: #2a2a2a; color: #eaeaea;
+      border: 1px solid #444; border-radius: 4px; padding: 3px 8px; }
+    #layout { display: flex; gap: 24px; padding: 0 14px 14px; align-items: flex-start; }
+    #pyramid { display: flex; flex-direction: column; gap: 10px; }
+    .row { display: flex; gap: 10px; align-items: flex-start; }
+    .row-label { width: 70px; color: #888; padding-top: 40px; text-align: right; }
+    .cell { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+    .cell canvas { image-rendering: pixelated; width: 116px; height: 116px;
+                   border: 1px solid #333; }
+    .cell .cap { color: #aaa; font-size: 11px; }
+    #side { display: flex; flex-direction: column; gap: 6px; }
+    #side canvas { image-rendering: pixelated; width: 232px; height: 232px;
+                   border: 1px solid #555; }
+    #side .cap { color: #aaa; }
+    #residual { color: #7fdc9a; font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <div id="bar">
+    <strong>viz-bdpt-pyramid</strong>
+    <span id="info">starting…</span>
+    <span class="hint">rows = path depth, cells = s light vertices — the Veach pyramid, accumulating live · click inside a cell to open that strategy as an animated path</span>
+  </div>
+  <div id="controls">
+    <label>scene: <select id="scene"></select></label>
+    <label>view:
+      <select id="view">
+        <option value="weighted" selected>weighted</option>
+        <option value="unweighted">unweighted</option>
+      </select>
+    </label>
+    <label>heuristic:
+      <select id="heuristic">
+        <option value="power" selected>power (β=2)</option>
+        <option value="balance">balance</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="assert"> weight-sum assertion</label>
+  </div>
+  <div id="layout">
+    <div id="pyramid"></div>
+    <div id="side">
+      <span class="cap">final image (all strategies, MIS-weighted)</span>
+      <canvas id="final"></canvas>
+      <span class="cap">pixelwise check: <span id="residual">—</span></span>
+    </div>
+  </div>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

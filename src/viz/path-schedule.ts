@@ -3,7 +3,8 @@
 // RR coin), when the emission flash or escape fade happens. Pure data in,
 // pure data out — the three.js elements just evaluate it at time t, which
 // is what makes scrubbing and frame-stepping trivially correct.
-import type { PathRecord, ShadowRayRecord, Tuple3 } from '../trace/records';
+import type { PathRecord, ShadowRayRecord, Tuple3, VertexRecord } from '../trace/records';
+import type { WalkRole } from '../trace/recorder';
 
 export interface ScheduleConfig {
   speed: number; // world units per second of segment growth
@@ -56,17 +57,28 @@ const dist = (a: Tuple3, b: Tuple3) =>
 
 const luminance = (c: Tuple3) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
 
+// Which vertex list of the record to schedule. BDPT paths carry two walks;
+// the default is the camera walk, exactly as before.
+export interface WalkSelection {
+  vertices: readonly VertexRecord[];
+  role: WalkRole;
+}
+
 export function buildSchedule(
   record: PathRecord,
   emissiveNames: ReadonlySet<string>,
   cfg: ScheduleConfig = DEFAULT_SCHEDULE,
+  walk: WalkSelection = { vertices: record.vertices, role: 'camera' },
 ): PathSchedule {
-  const vs = record.vertices;
+  const vs = walk.vertices;
   const segments: SegmentTiming[] = [];
   const moments: VertexMoment[] = [];
   let t = cfg.startTime;
 
-  const rrDeathDepth = record.rr.find((e) => !e.survived)?.depth ?? null;
+  // RR events are attributed per walk; records predating the role tag are
+  // camera walks.
+  const rrDeathDepth =
+    record.rr.find((e) => !e.survived && (e.role ?? 'camera') === walk.role)?.depth ?? null;
 
   for (let k = 0; k < vs.length; k++) {
     const v = vs[k]!;

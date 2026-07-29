@@ -6,6 +6,7 @@ import { buildScene, type Scene } from '../core/scene/scene';
 import { IndependentSampler } from '../core/sampler/independent';
 import { UnidirectionalPT } from '../core/integrators/pt';
 import { NEEPathTracer } from '../core/integrators/pt-nee';
+import { BDPT } from '../core/integrators/bdpt';
 import type { Integrator } from '../core/integrators/types';
 import { Film } from './film';
 import { renderPass } from './driver';
@@ -25,7 +26,12 @@ self.onmessage = (event: MessageEvent<MainToWorker>) => {
     scene = buildScene(msg.description, msg.width, msg.height);
     film = new Film(msg.width, msg.height);
     sampler = new IndependentSampler(msg.seed);
-    integrator = msg.integrator === 'pt-nee' ? new NEEPathTracer() : new UnidirectionalPT();
+    integrator =
+      msg.integrator === 'bdpt'
+        ? new BDPT()
+        : msg.integrator === 'pt-nee'
+          ? new NEEPathTracer()
+          : new UnidirectionalPT();
     epoch = msg.epoch ?? 0;
     replyMode = msg.reply ?? 'rgba';
     passesDone = 0;

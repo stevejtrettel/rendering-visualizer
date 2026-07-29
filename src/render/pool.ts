@@ -49,9 +49,9 @@ export class WorkerPool {
     this.restart(opts.description);
   }
 
-  restart(description: SceneDescription): void {
+  restart(description: SceneDescription, integrator?: IntegratorName): void {
     this.epoch += 1;
-    this.opts = { ...this.opts, description };
+    this.opts = { ...this.opts, description, integrator: integrator ?? this.opts.integrator };
     this.films.fill(null);
     this.passCounts.fill(0);
     this.startTime = performance.now();

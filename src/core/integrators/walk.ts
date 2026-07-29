@@ -60,6 +60,7 @@ export function randomWalk(
   options: WalkOptions = DEFAULT_WALK_OPTIONS,
 ): PathVertex[] {
   const vertices: PathVertex[] = [start];
+  const role = mode === TransportMode.Importance ? ('light' as const) : ('camera' as const);
   let currentRay = ray;
   let currentBeta = beta;
   let pdfFwdW = pdfDirW;
@@ -126,7 +127,7 @@ export function randomWalk(
       const q = Math.min(1, currentBeta.maxComponent() * etaScale);
       const u = sampler.next1D(); // drawn unconditionally — fixed layout
       const survived = u < q;
-      recorder.rr({ depth, probability: q, survived });
+      recorder.rr({ depth, probability: q, survived, role });
       if (!survived) break;
       currentBeta = currentBeta.scale(1 / q);
     }
@@ -134,6 +135,6 @@ export function randomWalk(
     currentRay = new Ray(offsetRayOrigin(vertex.p, vertex.ng, bs.wi), bs.wi);
   }
 
-  recorder.walk(vertices, mode === TransportMode.Importance ? 'light' : 'camera');
+  recorder.walk(vertices, role);
   return vertices;
 }

@@ -1,5 +1,15 @@
 # V2 Design — Bidirectional Path Tracing
 
+**Status**: ✅ shipped 2026-07-29 (all three checkpoints of
+`docs/plan-v2-implementation.md`). `BDPT` beside PT/NEE; pure-function MIS
+in `bdpt-mis.ts` with per-path weight-sum assertion (`assertWeights`);
+per-(s,t) AOVs via the `strategyFilms` sink; demos: `viz-bdpt-pyramid`,
+`viz-single-path` dual-subpath mode, `viz-convergence` BDPT panes. Open
+questions below were all answered YES 2026-07-29. Flagship result: the
+glass-box caustic matches NEE (60 spp BDPT vs 3000 spp NEE within 2% on
+the caustic region). SDS paths stay PT-grade by design (weight ≡ 1 there
+is correct) — V3's motivation.
+
 *Drafted 2026-07-29 for discussion. Sources: docs/pbrt-notes.md (PBRT v3
 mechanics, banked), Veach thesis chs. 8–10 (read in full; chapter PDFs in
 session scratchpad), SmallVCM + Georgiev VCM tech report, pbrt-v3/v4

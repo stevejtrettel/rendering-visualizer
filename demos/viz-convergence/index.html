@@ -41,7 +41,21 @@
       <div class="row"><span>scene</span>
         <select id="scene"></select>
       </div>
-      <div class="note">left: unidirectional PT<br>right: PT + NEE (MIS)</div>
+      <div class="row"><span>left</span>
+        <select id="pane0">
+          <option value="pt" selected>PT</option>
+          <option value="pt-nee">NEE</option>
+          <option value="bdpt">BDPT</option>
+        </select>
+      </div>
+      <div class="row"><span>right</span>
+        <select id="pane1">
+          <option value="pt">PT</option>
+          <option value="pt-nee" selected>NEE</option>
+          <option value="bdpt">BDPT</option>
+        </select>
+      </div>
+      <div class="note">BDPT's error view reflects its camera-sample strategies; t=1 splat variance is not error-tracked</div>
       <div class="note">snapshots at 1, 2, 4, … spp as they finish; scrubbing steps through them</div>
     </div>
     <div><canvas id="compare"></canvas></div>

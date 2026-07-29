@@ -41,11 +41,14 @@ const desc = () => SCENES[sceneName]!;
 // Split the machine's cores between the two panes.
 const POOL_SIZE = Math.max(1, Math.floor(((navigator.hardwareConcurrency || 4) - 2) / 2));
 
-function makePane(name: IntegratorName, label: string): Pane {
+const labelOf = (name: IntegratorName): string =>
+  `${{ pt: 'PT', 'pt-nee': 'NEE', bdpt: 'BDPT' }[name]} ×${POOL_SIZE}`;
+
+function makePane(name: IntegratorName): Pane {
   // Snapshots at (roughly) power-of-two total spp; cumMillis is honest
   // WALL time — with a pool, summed CPU time would overstate the cost.
   let nextSnap = 1;
-  const pane: Pane = { name, label, snapshots: [], restart: () => {} };
+  const pane: Pane = { name, label: labelOf(name), snapshots: [], restart: () => {} };
   const pool = new WorkerPool({
     size: POOL_SIZE,
     description: desc(),
@@ -59,7 +62,9 @@ function makePane(name: IntegratorName, label: string): Pane {
         pane.snapshots.push({
           spp: u.totalSpp,
           cumMillis: u.wallMillis,
-          rgba: u.film.develop(),
+          // splatScale normalizes BDPT's t=1 light-tracing splats; a no-op
+          // for integrators that never splat.
+          rgba: u.film.develop({ splatScale: 1 / Math.max(1, u.totalSpp) }),
           errorRgba: u.film.developError(),
         });
         while (nextSnap <= u.totalSpp) nextSnap *= 2;
@@ -70,12 +75,13 @@ function makePane(name: IntegratorName, label: string): Pane {
   pane.restart = () => {
     pane.snapshots = [];
     nextSnap = 1;
-    pool.restart(desc());
+    pane.label = labelOf(pane.name);
+    pool.restart(desc(), pane.name);
   };
   return pane;
 }
 
-const panes = [makePane('pt', `PT ×${POOL_SIZE}`), makePane('pt-nee', `NEE ×${POOL_SIZE}`)];
+const panes = [makePane('pt'), makePane('pt-nee')];
 
 // --- The compositor element ---
 type ViewKind = 'image' | 'error';
@@ -167,7 +173,7 @@ function onSnapshotsChanged(): void {
   infoEl.textContent =
     done.every((s) => s >= MAX_SPP)
       ? `complete: ${MAX_SPP} spp both sides`
-      : `rendering… PT ${done[0]} spp · NEE ${done[1]} spp (to ${MAX_SPP})`;
+      : `rendering… ${panes[0]!.label} ${done[0]} spp · ${panes[1]!.label} ${done[1]} spp (to ${MAX_SPP})`;
   timeline.setTime(timeline.time); // refresh with new data
 }
 
@@ -204,6 +210,15 @@ sceneSelect.addEventListener('change', () => {
   for (const pane of panes) pane.restart();
   timeline.duration = stepCount();
   timeline.setTime(0);
+});
+(['pane0', 'pane1'] as const).forEach((id, i) => {
+  const sel = document.getElementById(id) as HTMLSelectElement;
+  sel.addEventListener('change', () => {
+    panes[i]!.name = sel.value as IntegratorName;
+    panes[i]!.restart();
+    timeline.duration = stepCount();
+    timeline.setTime(0);
+  });
 });
 
 const frameSource = {

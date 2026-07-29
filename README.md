@@ -60,6 +60,8 @@ structural:
   (V0 shipped: unidirectional PT, worker rendering, click-to-replay).
 - `docs/design-v1.md` — the V1 stages (V1a NEE/MIS shipped; V1b materials
   and V1c parallelism pending).
+- `docs/design-v2.md` — bidirectional path tracing: strategy enumeration,
+  pure-function MIS, the validation plan (V2 shipped).
 - `docs/design-viz.md` — the display/animation system: timeline substrate,
   visual design language for light paths, demo statuses and decisions.
 - `docs/pbrt-notes.md` — distilled PBRT implementation references for the
@@ -69,10 +71,14 @@ structural:
 
 `npm run dev` opens the gallery: `v0-cornell` (progressive CPU render +
 click-to-inspect paths), `v1-nee` (PT vs PT+NEE, equal seeds and samples),
-`viz-single-path` (one sample animated bounce by bounce, scrub + movie
-export), `viz-pixel-samples` (one pixel's samples flipped through or
-accumulated), `viz-image-forming` (a low-res image forming on a floating
-plane inside the scene).
+`viz-single-path` (one sample animated bounce by bounce — for bdpt both
+subpaths grow at once with connection flashes; scrub + movie export),
+`viz-pixel-samples` (one pixel's samples flipped through or accumulated),
+`viz-image-forming` (a low-res image forming on a floating plane inside the
+scene), `viz-convergence` (scrub convergence snapshots and wipe between any
+two of PT / NEE / BDPT, image or error view), `viz-bdpt-pyramid` (every
+BDPT strategy accumulating live in its own cell, weighted or unweighted,
+with the weight-sum check running in-browser).
 
 ## Commands
 
