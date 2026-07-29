@@ -15,6 +15,7 @@ if (demo && !existsSync(path.join(projectRoot, 'demos', demo, 'main.ts'))) {
 }
 
 export default defineConfig({
+  assetsInclude: ['**/*.obj'],
   root: demo ? path.join(projectRoot, 'demos', demo) : projectRoot,
   build: demo ? { outDir: path.join(projectRoot, 'dist', demo), emptyOutDir: true } : {},
   server: { fs: { allow: [projectRoot] } }, // demo pages import ../../src

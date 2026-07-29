@@ -5,10 +5,13 @@ import { Vec3 } from '../math/vec3';
 import { Color } from '../math/color';
 import { Sphere } from '../geometry/sphere';
 import { Quad } from '../geometry/quad';
+import { TriangleMesh } from '../geometry/triangle-mesh';
 import type { Shape } from '../geometry/shape';
 import { LinearAggregate, type Aggregate, type Primitive } from '../geometry/aggregate';
 import type { BxDF } from '../materials/bsdf';
 import { Lambert } from '../materials/lambert';
+import { Dielectric } from '../materials/dielectric';
+import { GGXConductor, SmoothConductor } from '../materials/conductor';
 import { AreaLight } from '../lights/area';
 import type { Light } from '../lights/light';
 import { UniformLightDistribution, type LightDistribution } from '../lights/distribution';
@@ -19,9 +22,15 @@ export type ColorTuple = readonly [number, number, number];
 
 export type ShapeDescription =
   | { kind: 'sphere'; center: Vec3Tuple; radius: number }
-  | { kind: 'quad'; q: Vec3Tuple; e1: Vec3Tuple; e2: Vec3Tuple };
+  | { kind: 'quad'; q: Vec3Tuple; e1: Vec3Tuple; e2: Vec3Tuple }
+  // Typed arrays: structured-clone safe, shipped to workers as-is.
+  | { kind: 'mesh'; positions: Float32Array; normals: Float32Array; indices: Uint32Array };
 
-export type MaterialDescription = { kind: 'lambert'; albedo: ColorTuple };
+export type MaterialDescription =
+  | { kind: 'lambert'; albedo: ColorTuple }
+  | { kind: 'dielectric'; ior: number }
+  | { kind: 'mirror'; f0: ColorTuple }
+  | { kind: 'conductor'; f0: ColorTuple; roughness: number };
 
 export interface PrimitiveDescription {
   name?: string;
@@ -69,11 +78,22 @@ function buildShape(desc: ShapeDescription): Shape {
       return new Sphere(vec(desc.center), desc.radius);
     case 'quad':
       return new Quad(vec(desc.q), vec(desc.e1), vec(desc.e2));
+    case 'mesh':
+      return new TriangleMesh(desc.positions, desc.normals, desc.indices);
   }
 }
 
 function buildMaterial(desc: MaterialDescription): BxDF {
-  return new Lambert(color(desc.albedo));
+  switch (desc.kind) {
+    case 'lambert':
+      return new Lambert(color(desc.albedo));
+    case 'dielectric':
+      return new Dielectric(desc.ior);
+    case 'mirror':
+      return new SmoothConductor(color(desc.f0));
+    case 'conductor':
+      return new GGXConductor(color(desc.f0), desc.roughness);
+  }
 }
 
 export function buildScene(desc: SceneDescription, width: number, height: number): Scene {

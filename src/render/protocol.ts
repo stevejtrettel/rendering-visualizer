@@ -11,6 +11,9 @@ export interface InitMessage {
   height: number;
   seed: number;
   integrator: IntegratorName;
+  // Incremented by the caller on re-init (e.g. scene switch); echoed on
+  // every passDone so stale in-flight results can be discarded.
+  epoch?: number;
 }
 
 export interface PassMessage {
@@ -22,6 +25,7 @@ export type MainToWorker = InitMessage | PassMessage;
 
 export interface PassDoneMessage {
   type: 'passDone';
+  epoch: number;
   sampleIndex: number;
   samplesPerPixel: number;
   passMillis: number;

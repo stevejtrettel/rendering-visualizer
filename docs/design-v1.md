@@ -7,7 +7,15 @@ increments, each with its own review checkpoint.*
 **Status**: V1a ✅ shipped 2026-07-28 (`NEEPathTracer`, shadow-ray
 recording, cross-integrator convergence test, `demos/v1-nee`). Display
 work (see `design-viz.md`) was inserted between V1a and V1b by agreement.
-V1b (dielectric + GGX) and V1c (worker pool + Node CLI) pending.
+V1b ✅ shipped 2026-07-28: exact-Fresnel `Dielectric` (delta lobes, η²
+Radiance-mode correction, directed eta for RR), `SmoothConductor`,
+`GGXConductor` (VNDF sampling, height-correlated Smith, α = roughness²,
+Schlick F0 — both by decision), scene registry (`demos/_shared/scenes.ts`,
+`cornell` + `cornell-glass`) with scene dropdowns in all viz demos, and an
+`epoch` field on the worker protocol for clean scene switching. The
+integrator/walk needed ZERO changes — the V0 delta/etaScale reservations
+held. V1c (worker pool + Node CLI) pending; next planned conversation:
+meshes + BVH (acceleration), per the caustics discussion.
 
 ## Standing principle, codified
 

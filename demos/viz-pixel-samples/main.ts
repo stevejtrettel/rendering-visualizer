@@ -6,7 +6,10 @@
 // after sample finding nothing, then one that suddenly connects.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { CORNELL, VIZ_VIEW } from '../_shared/cornell';
+import { VIZ_VIEW } from '../_shared/cornell';
+import { loadSceneRegistry } from '../_shared/scenes';
+
+const SCENES = await loadSceneRegistry();
 import { buildScene } from '../../src/core/scene/scene';
 import { IndependentSampler } from '../../src/core/sampler/independent';
 import { pixelSeedKey } from '../../src/core/sampler/sampler';
@@ -27,17 +30,26 @@ const VIEW_W = 860;
 const VIEW_H = 620;
 const SEED = 0;
 
+let sceneName = 'cornell';
+let sceneEpoch = 0;
+const desc = () => SCENES[sceneName]!;
+
 // --- CPU preview for pixel picking ---
 const preview = document.getElementById('preview') as HTMLCanvasElement;
 const previewCtx = preview.getContext('2d')!;
 const worker = new Worker(new URL('../../src/render/worker.ts', import.meta.url), { type: 'module' });
 const post = (m: MainToWorker) => worker.postMessage(m);
-post({ type: 'init', description: CORNELL, width: PREVIEW_SIZE, height: PREVIEW_SIZE, seed: SEED, integrator: 'pt-nee' });
-post({ type: 'pass', sampleIndex: 0 });
+function initPreview(): void {
+  sceneEpoch += 1;
+  post({ type: 'init', description: desc(), width: PREVIEW_SIZE, height: PREVIEW_SIZE, seed: SEED, integrator: 'pt-nee', epoch: sceneEpoch });
+  post({ type: 'pass', sampleIndex: 0 });
+}
 worker.onmessage = (e: MessageEvent<PassDoneMessage>) => {
+  if (e.data.epoch !== sceneEpoch) return;
   previewCtx.putImageData(new ImageData(e.data.rgba, PREVIEW_SIZE, PREVIEW_SIZE), 0, 0);
   if (e.data.samplesPerPixel < 256) post({ type: 'pass', sampleIndex: e.data.samplesPerPixel });
 };
+initPreview();
 
 // --- three.js view ---
 const vizPane = document.getElementById('viz-pane')!;
@@ -48,7 +60,8 @@ vizPane.appendChild(renderer.domElement);
 
 const threeScene = new THREE.Scene();
 threeScene.background = new THREE.Color(0x141414);
-threeScene.add(sceneToThree(CORNELL));
+let sceneGroup = sceneToThree(desc());
+threeScene.add(sceneGroup);
 
 const threeCamera = new THREE.PerspectiveCamera(45, VIEW_W / VIEW_H, 0.01, 100);
 threeCamera.position.set(...VIZ_VIEW.eye);
@@ -60,7 +73,7 @@ const pathsGroup = new THREE.Group();
 threeScene.add(pathsGroup);
 
 // --- State + rebuild ---
-const inspectScene = buildScene(CORNELL, PREVIEW_SIZE, PREVIEW_SIZE);
+let inspectScene = buildScene(desc(), PREVIEW_SIZE, PREVIEW_SIZE);
 const integrators: Record<IntegratorName, Integrator> = {
   pt: new UnidirectionalPT(),
   'pt-nee': new NEEPathTracer(),
@@ -144,6 +157,19 @@ sel('tier').addEventListener('change', (e) => {
 });
 document.getElementById('shadow-rays')!.addEventListener('change', (e) => {
   shadowRays = (e.target as HTMLInputElement).checked;
+  rebuild();
+});
+const sceneSelect = document.getElementById('scene') as HTMLSelectElement;
+for (const name of Object.keys(SCENES)) {
+  sceneSelect.add(new Option(name, name, undefined, name === sceneName));
+}
+sceneSelect.addEventListener('change', () => {
+  sceneName = sceneSelect.value;
+  threeScene.remove(sceneGroup);
+  sceneGroup = sceneToThree(desc());
+  threeScene.add(sceneGroup);
+  inspectScene = buildScene(desc(), PREVIEW_SIZE, PREVIEW_SIZE);
+  initPreview();
   rebuild();
 });
 

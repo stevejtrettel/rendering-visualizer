@@ -4,8 +4,10 @@
 // divider and B right of it — scrub through snapshots (equal-sample or
 // equal-time), toggle image vs false-color error view, drag the divider,
 // export movies. BDPT and MLT drop into this same harness when they exist.
-import { CORNELL } from '../_shared/cornell';
+import { loadSceneRegistry } from '../_shared/scenes';
 import type { IntegratorName, MainToWorker, PassDoneMessage } from '../../src/render/protocol';
+
+const SCENES = await loadSceneRegistry();
 import { Timeline, type TimelineElement } from '../../src/viz/timeline';
 import { attachControls } from '../../src/viz/controls';
 import { recordFrames, recordWebM } from '../../src/viz/recording';
@@ -27,6 +29,7 @@ interface Pane {
   label: string;
   snapshots: Snapshot[];
   cumMillis: number;
+  restart: () => void;
 }
 
 const isPowerOfTwo = (n: number) => (n & (n - 1)) === 0;
@@ -34,14 +37,28 @@ const isPowerOfTwo = (n: number) => (n & (n - 1)) === 0;
 const infoEl = document.getElementById('info')!;
 const timeline = new Timeline();
 
+let sceneName = 'cornell';
+let sceneEpoch = 0;
+const desc = () => SCENES[sceneName]!;
+
 function makePane(name: IntegratorName, label: string): Pane {
-  const pane: Pane = { name, label, snapshots: [], cumMillis: 0 };
   const worker = new Worker(new URL('../../src/render/worker.ts', import.meta.url), { type: 'module' });
   const post = (m: MainToWorker) => worker.postMessage(m);
-  post({ type: 'init', description: CORNELL, width: RES, height: RES, seed: SEED, integrator: name });
-  post({ type: 'pass', sampleIndex: 0 });
+  const pane: Pane = {
+    name,
+    label,
+    snapshots: [],
+    cumMillis: 0,
+    restart: () => {
+      pane.snapshots = [];
+      pane.cumMillis = 0;
+      post({ type: 'init', description: desc(), width: RES, height: RES, seed: SEED, integrator: name, epoch: sceneEpoch });
+      post({ type: 'pass', sampleIndex: 0 });
+    },
+  };
   worker.onmessage = (event: MessageEvent<PassDoneMessage>) => {
     const msg = event.data;
+    if (msg.epoch !== sceneEpoch) return; // stale result from a previous scene
     pane.cumMillis += msg.passMillis;
     if (isPowerOfTwo(msg.samplesPerPixel)) {
       pane.snapshots.push({
@@ -55,6 +72,7 @@ function makePane(name: IntegratorName, label: string): Pane {
     if (msg.samplesPerPixel < MAX_SPP) post({ type: 'pass', sampleIndex: msg.samplesPerPixel });
     else onSnapshotsChanged(); // final state
   };
+  pane.restart();
   return pane;
 }
 
@@ -177,6 +195,17 @@ canvas.addEventListener('pointerup', () => (dragging = false));
 (document.getElementById('view') as HTMLSelectElement).addEventListener('change', (e) => {
   view = (e.target as HTMLSelectElement).value as ViewKind;
   timeline.setTime(timeline.time);
+});
+const sceneSelect = document.getElementById('scene') as HTMLSelectElement;
+for (const name of Object.keys(SCENES)) {
+  sceneSelect.add(new Option(name, name, undefined, name === sceneName));
+}
+sceneSelect.addEventListener('change', () => {
+  sceneName = sceneSelect.value;
+  sceneEpoch += 1;
+  for (const pane of panes) pane.restart();
+  timeline.duration = stepCount();
+  timeline.setTime(0);
 });
 
 const frameSource = {

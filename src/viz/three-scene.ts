@@ -3,8 +3,47 @@
 import * as THREE from 'three';
 import type { PrimitiveDescription, SceneDescription } from '../core/scene/scene';
 
+// Approximate raster portrayal of each CPU material. The physically
+// correct image is always the CPU render; this keeps the preview legible.
+function materialFor(desc: PrimitiveDescription): THREE.Material {
+  const m = desc.material;
+  switch (m.kind) {
+    case 'dielectric':
+      return new THREE.MeshPhysicalMaterial({
+        color: 0xffffff,
+        transmission: 1,
+        ior: m.ior,
+        roughness: 0.02,
+        side: THREE.DoubleSide,
+      });
+    case 'mirror':
+      return new THREE.MeshStandardMaterial({
+        color: new THREE.Color(...m.f0),
+        metalness: 1,
+        roughness: 0.03,
+      });
+    case 'conductor':
+      return new THREE.MeshStandardMaterial({
+        color: new THREE.Color(...m.f0),
+        metalness: 1,
+        roughness: m.roughness,
+      });
+    case 'lambert':
+      return new THREE.MeshStandardMaterial({
+        color: new THREE.Color(...m.albedo),
+        roughness: 1,
+        side: THREE.DoubleSide,
+        ...(desc.emission
+          ? {
+              emissive: new THREE.Color(...desc.emission.radiance).multiplyScalar(1 / Math.max(...desc.emission.radiance)),
+              emissiveIntensity: 1.5,
+            }
+          : {}),
+      });
+  }
+}
+
 function primitiveMesh(desc: PrimitiveDescription): THREE.Mesh {
-  const emissive = desc.emission != null;
   // Ghost primitives (display hint): real geometry for the CPU renderer,
   // drawn here as barely-there glass so we can see into closed scenes.
   const material = desc.display?.ghost
@@ -17,22 +56,20 @@ function primitiveMesh(desc: PrimitiveDescription): THREE.Mesh {
         side: THREE.DoubleSide,
         depthWrite: false,
       })
-    : new THREE.MeshStandardMaterial({
-        color: new THREE.Color(...desc.material.albedo),
-        roughness: 1,
-        side: THREE.DoubleSide,
-        ...(emissive
-          ? {
-              emissive: new THREE.Color(...desc.emission!.radiance).multiplyScalar(1 / Math.max(...desc.emission!.radiance)),
-              emissiveIntensity: 1.5,
-            }
-          : {}),
-      });
+    : materialFor(desc);
 
   if (desc.shape.kind === 'sphere') {
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(desc.shape.radius, 48, 24), material);
     mesh.position.set(...desc.shape.center);
     return mesh;
+  }
+
+  if (desc.shape.kind === 'mesh') {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(desc.shape.positions, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(desc.shape.normals, 3));
+    geometry.setIndex(new THREE.BufferAttribute(desc.shape.indices, 1));
+    return new THREE.Mesh(geometry, material);
   }
 
   // Quad q + u*e1 + v*e2 as a two-triangle BufferGeometry.

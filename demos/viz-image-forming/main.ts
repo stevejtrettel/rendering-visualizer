@@ -4,7 +4,10 @@
 // clock for both — scrub time and you scrub the image's convergence.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { CORNELL, VIZ_VIEW } from '../_shared/cornell';
+import { VIZ_VIEW } from '../_shared/cornell';
+import { loadSceneRegistry } from '../_shared/scenes';
+
+const SCENES = await loadSceneRegistry();
 import { buildScene, type Scene } from '../../src/core/scene/scene';
 import { IndependentSampler } from '../../src/core/sampler/independent';
 import { pixelSeedKey } from '../../src/core/sampler/sampler';
@@ -28,17 +31,26 @@ const VIEW_H = 620;
 const SEED = 0;
 const PLANE_DISTANCE = 1.4;
 
+let sceneName = 'cornell';
+let sceneEpoch = 0;
+const desc = () => SCENES[sceneName]!;
+
 // --- CPU preview (what the plane is converging toward) ---
 const preview = document.getElementById('preview') as HTMLCanvasElement;
 const previewCtx = preview.getContext('2d')!;
 const worker = new Worker(new URL('../../src/render/worker.ts', import.meta.url), { type: 'module' });
 const post = (m: MainToWorker) => worker.postMessage(m);
-post({ type: 'init', description: CORNELL, width: PREVIEW_SIZE, height: PREVIEW_SIZE, seed: SEED, integrator: 'pt-nee' });
-post({ type: 'pass', sampleIndex: 0 });
+function initPreview(): void {
+  sceneEpoch += 1;
+  post({ type: 'init', description: desc(), width: PREVIEW_SIZE, height: PREVIEW_SIZE, seed: SEED, integrator: 'pt-nee', epoch: sceneEpoch });
+  post({ type: 'pass', sampleIndex: 0 });
+}
 worker.onmessage = (e: MessageEvent<PassDoneMessage>) => {
+  if (e.data.epoch !== sceneEpoch) return;
   previewCtx.putImageData(new ImageData(e.data.rgba, PREVIEW_SIZE, PREVIEW_SIZE), 0, 0);
   if (e.data.samplesPerPixel < 256) post({ type: 'pass', sampleIndex: e.data.samplesPerPixel });
 };
+initPreview();
 
 // --- three.js view ---
 const vizPane = document.getElementById('viz-pane')!;
@@ -49,7 +61,8 @@ vizPane.appendChild(renderer.domElement);
 
 const threeScene = new THREE.Scene();
 threeScene.background = new THREE.Color(0x141414);
-threeScene.add(sceneToThree(CORNELL));
+let sceneGroup = sceneToThree(desc());
+threeScene.add(sceneGroup);
 
 const threeCamera = new THREE.PerspectiveCamera(45, VIEW_W / VIEW_H, 0.01, 100);
 threeCamera.position.set(...VIZ_VIEW.eye);
@@ -125,9 +138,9 @@ function traceHighlightRecords(scene: Scene): PathRecord[] {
 
 async function rebuild(): Promise<void> {
   const token = ++rebuildToken;
-  const key = `${integratorName}/${res}/${count}`;
+  const key = `${sceneName}/${integratorName}/${res}/${count}`;
   if (cachedKey !== key) {
-    const scene = buildScene(CORNELL, res, res);
+    const scene = buildScene(desc(), res, res);
     const cumulative = await tracePlane(scene, token);
     if (!cumulative) return; // superseded
     cachedKey = key;
@@ -148,7 +161,7 @@ async function rebuild(): Promise<void> {
   timeline.add(
     new ImagePlaneElement(
       {
-        camera: CORNELL.camera,
+        camera: desc().camera,
         distance: PLANE_DISTANCE,
         res,
         samples: count,
@@ -205,6 +218,18 @@ sel('mode').addEventListener('change', (e) => {
 });
 document.getElementById('shadow-rays')!.addEventListener('change', (e) => {
   shadowRays = (e.target as HTMLInputElement).checked;
+  void rebuild();
+});
+const sceneSelect = document.getElementById('scene') as HTMLSelectElement;
+for (const name of Object.keys(SCENES)) {
+  sceneSelect.add(new Option(name, name, undefined, name === sceneName));
+}
+sceneSelect.addEventListener('change', () => {
+  sceneName = sceneSelect.value;
+  threeScene.remove(sceneGroup);
+  sceneGroup = sceneToThree(desc());
+  threeScene.add(sceneGroup);
+  initPreview();
   void rebuild();
 });
 
