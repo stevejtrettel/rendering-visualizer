@@ -5,8 +5,11 @@ been discussed and agreed with Steve. Propose the design, discuss trade-offs,
 then implement. This applies to every feature, not just large ones.
 
 ## Architecture (agreed 2026-07-28 — see README.md, and the design docs in
-## docs/: design-v0, design-v1, design-viz, pbrt-notes. Decisions and their
-## rationale live there; check statuses before proposing work.)
+## docs/: design-v0, design-v1, design-v1c, design-viz, design-v2,
+## pbrt-notes. Decisions and their rationale live there; check statuses
+## before proposing work. NEXT UP: docs/plan-v2-implementation.md is the
+## approved, detailed BDPT build plan — execute it checkpoint by
+## checkpoint, stopping for Steve's review at each.)
 
 - TypeScript everywhere, strict mode. The CPU renderer is TS, not native —
   the shared core between renderer and visualization is the whole point.

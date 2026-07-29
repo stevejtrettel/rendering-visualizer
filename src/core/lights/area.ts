@@ -1,6 +1,9 @@
 import type { Vec3 } from '../math/vec3';
 import { Color } from '../math/color';
-import type { Sample2D } from '../math/sampling';
+import { OrthonormalBasis } from '../math/onb';
+import { Ray } from '../math/ray';
+import { cosineHemispherePdf, cosineSampleHemisphere, type Sample2D } from '../math/sampling';
+import { offsetRayOrigin } from '../geometry/offset';
 import type { Shape } from '../geometry/shape';
 import type { LeSample, Light, LightSampleContext, LiSample, LightType } from './light';
 
@@ -38,11 +41,34 @@ export class AreaLight implements Light {
     return this.shape.pdf(ctx.p, wi);
   }
 
-  sampleLe(_u1: Sample2D, _u2: Sample2D): LeSample | null {
-    throw new Error('AreaLight.sampleLe: implemented in V2 (BDPT light subpaths)');
+  // Position uniform by area, direction cosine-weighted about the light
+  // normal. Two-sided emission would need an extra hemisphere-choice
+  // dimension the fixed layout does not draw — no two-sided lights exist in
+  // our scenes, so fail loudly rather than emit from one side silently.
+  sampleLe(u1: Sample2D, u2: Sample2D): LeSample | null {
+    if (this.twoSided) {
+      throw new Error('AreaLight.sampleLe: two-sided emission needs a hemisphere-choice dimension');
+    }
+    const s = this.shape.sampleArea(u1);
+    const local = cosineSampleHemisphere(u2);
+    const pdfDir = cosineHemispherePdf(local.z);
+    if (pdfDir === 0) return null;
+    const w = OrthonormalBasis.fromZ(s.ng).toWorld(local);
+    const L = this.le(s.p, s.ng, [0, 0], w);
+    if (L.isBlack()) return null;
+    return {
+      L,
+      ray: new Ray(offsetRayOrigin(s.p, s.ng, w), w),
+      nLight: s.ng,
+      pdfPos: s.pdf,
+      pdfDir,
+    };
   }
 
-  pdfLe(_p: Vec3, _n: Vec3, _w: Vec3): { pdfPos: number; pdfDir: number } {
-    throw new Error('AreaLight.pdfLe: implemented in V2 (BDPT light subpaths)');
+  pdfLe(_p: Vec3, n: Vec3, w: Vec3): { pdfPos: number; pdfDir: number } {
+    if (this.twoSided) {
+      throw new Error('AreaLight.pdfLe: two-sided emission needs a hemisphere-choice dimension');
+    }
+    return { pdfPos: 1 / this.shape.area(), pdfDir: cosineHemispherePdf(n.dot(w)) };
   }
 }

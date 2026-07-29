@@ -4,7 +4,7 @@
 import type { PathVertex } from '../core/integrators/vertex';
 import type { Contribution } from '../core/integrators/types';
 import type { SeedKey } from '../core/sampler/sampler';
-import type { Recorder, RREvent, ShadowRayEvent } from './recorder';
+import type { ConnectionEvent, Recorder, RREvent, ShadowRayEvent, WalkRole } from './recorder';
 
 export type Tuple3 = readonly [number, number, number];
 
@@ -37,11 +37,26 @@ export interface ShadowRayRecord {
   blockedAt: Tuple3 | null;
 }
 
+export interface ConnectionRecord {
+  s: number;
+  t: number;
+  from: Tuple3;
+  to: Tuple3;
+  occluded: boolean;
+  blockedAt: Tuple3 | null;
+  weight: number;
+}
+
 export interface PathRecord {
   key: { seq: readonly number[]; index: number };
+  // Camera-walk vertices — the field every existing consumer reads; BDPT's
+  // light walk lands in lightVertices so the two subpaths stay
+  // distinguishable after the lossy flatten.
   vertices: VertexRecord[];
+  lightVertices: VertexRecord[];
   rr: RREvent[];
   shadowRays: ShadowRayRecord[];
+  connections: ConnectionRecord[];
   contributions: ContributionRecord[];
 }
 
@@ -73,14 +88,18 @@ export class ArrayRecorder implements Recorder {
     this.current = {
       key: { seq: [...key.seq], index: key.index },
       vertices: [],
+      lightVertices: [],
       rr: [],
       shadowRays: [],
+      connections: [],
       contributions: [],
     };
   }
 
-  walk(vertices: readonly PathVertex[]): void {
-    this.current?.vertices.push(...vertices.map(flattenVertex));
+  walk(vertices: readonly PathVertex[], role: WalkRole): void {
+    if (!this.current) return;
+    const target = role === 'light' ? this.current.lightVertices : this.current.vertices;
+    target.push(...vertices.map(flattenVertex));
   }
 
   rr(event: RREvent): void {
@@ -94,6 +113,18 @@ export class ArrayRecorder implements Recorder {
       to: t3(event.to),
       occluded: event.occluded,
       blockedAt: event.blockedAt ? t3(event.blockedAt) : null,
+    });
+  }
+
+  connection(event: ConnectionEvent): void {
+    this.current?.connections.push({
+      s: event.s,
+      t: event.t,
+      from: t3(event.from),
+      to: t3(event.to),
+      occluded: event.occluded,
+      blockedAt: event.blockedAt ? t3(event.blockedAt) : null,
+      weight: event.weight,
     });
   }
 

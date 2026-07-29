@@ -41,6 +41,36 @@ export interface PathVertex {
   light: Light | null; // light endpoint only (V2)
 }
 
+// Light-subpath endpoint. `beta` is the emitted Le (the walk's running
+// throughput divides out the sampling pdfs separately, mirroring pbrt);
+// `pdfFwd` = pdfPos x light-selection pmf, which is already area measure.
+export function lightVertex(
+  light: Light,
+  p: Vec3,
+  n: Vec3,
+  beta: Color,
+  pdfFwd: number,
+): PathVertex {
+  return {
+    type: 'light',
+    p,
+    ng: n,
+    ns: n,
+    uv: [0, 0],
+    beta,
+    pdfFwd,
+    pdfRev: 0,
+    delta: false,
+    wo: null,
+    wiSampled: null,
+    neeSamples: null,
+    bsdf: null,
+    primitive: null,
+    camera: null,
+    light,
+  };
+}
+
 export function cameraVertex(camera: PinholeCamera, beta: Color): PathVertex {
   return {
     type: 'camera',

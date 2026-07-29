@@ -7,6 +7,7 @@
 // into the new vertex and pdfRev backward into the previous one.
 import { Color } from '../math/color';
 import { Ray } from '../math/ray';
+import type { Vec3 } from '../math/vec3';
 import { solidAngleToArea } from '../geometry/measure';
 import { offsetRayOrigin } from '../geometry/offset';
 import { SurfaceBSDF } from '../materials/surface';
@@ -26,6 +27,23 @@ export interface WalkOptions {
 }
 
 export const DEFAULT_WALK_OPTIONS: WalkOptions = { maxBounces: 32, rrStartDepth: 3, sampleNEE: false };
+
+// Shading-normal adjoint correction (pbrt v3 §16.1.3): light subpaths
+// (Importance mode) weight the BSDF with |ns·w| cosines where the physical
+// transport wants |ng·w|; the asymmetry must be corrected per bounce or
+// camera and light subpaths disagree wherever ns != ng. Identity (= 1) in
+// Radiance mode and whenever ns = ng.
+export function correctShadingNormal(
+  isect: { ns: Vec3; ng: Vec3 },
+  wo: Vec3,
+  wi: Vec3,
+  mode: TransportMode,
+): number {
+  if (mode === TransportMode.Radiance) return 1;
+  const denom = Math.abs(isect.ng.dot(wo)) * Math.abs(isect.ns.dot(wi));
+  if (denom === 0) return 0;
+  return (Math.abs(isect.ns.dot(wo)) * Math.abs(isect.ng.dot(wi))) / denom;
+}
 
 // Extends `start` (an endpoint vertex) along `ray`. `beta` is the throughput
 // arriving at the first surface hit; `pdfDirW` the solid-angle density of
@@ -89,8 +107,8 @@ export function randomWalk(
 
     vertex.wiSampled = bs.wi;
     currentBeta = currentBeta.mul(bs.f).scale(Math.abs(bs.wi.dot(isect.ns)) / bs.pdf);
+    currentBeta = currentBeta.scale(correctShadingNormal(isect, wo, bs.wi, mode));
     etaScale *= bs.eta * bs.eta;
-    // V2 (Importance mode) multiplies correctShadingNormal here.
 
     let pdfRevW = bsdf.pdf(bs.wi, wo, mode);
     if (isSpecular(bs.flags)) {
@@ -100,7 +118,9 @@ export function randomWalk(
     } else {
       pdfFwdW = bs.pdf;
     }
-    prev.pdfRev = solidAngleToArea(pdfRevW, vertex.p, prev.p, prev.type === 'surface' ? prev.ng : null);
+    // Cosine for any on-surface target: surface vertices AND area-light
+    // endpoints (pbrt's ConvertDensity); only the pinhole camera has none.
+    prev.pdfRev = solidAngleToArea(pdfRevW, vertex.p, prev.p, prev.type === 'camera' ? null : prev.ng);
 
     if (depth >= options.rrStartDepth) {
       const q = Math.min(1, currentBeta.maxComponent() * etaScale);
@@ -114,6 +134,6 @@ export function randomWalk(
     currentRay = new Ray(offsetRayOrigin(vertex.p, vertex.ng, bs.wi), bs.wi);
   }
 
-  recorder.walk(vertices);
+  recorder.walk(vertices, mode === TransportMode.Importance ? 'light' : 'camera');
   return vertices;
 }
