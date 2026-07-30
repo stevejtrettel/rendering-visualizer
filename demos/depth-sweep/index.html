@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>depth-sweep — where the light in the image comes from</title>
+  <style>
+    body { margin: 0; padding: 12px 14px; background: #111; color: #eaeaea;
+           font: 13px/1.5 ui-sans-serif, system-ui, sans-serif; }
+    h1 { font-size: 15px; font-weight: 600; margin: 0; }
+    p.shows { color: #888; margin: 2px 0 10px; }
+    #status { color: #ffaa33; font-variant-numeric: tabular-nums; }
+    #row { display: flex; gap: 12px; margin-top: 10px; }
+    .tile { display: flex; flex-direction: column; gap: 3px; }
+    .tile canvas { image-rendering: pixelated; width: 200px; height: 200px;
+                   border: 1px solid #333; }
+    .tile .cap { color: #aaa; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>depth-sweep</h1>
+  <p class="shows">SHOWS: the same scene with the walk cut off after 1, 2, 3, 4, 8 and 32
+     bounces — each image is the light reaching the camera within that many scattering
+     events, captioned with its share of the converged reference. Direct light alone is most
+     of the picture; energy in a closed box decays like albedo per bounce, so the ladder is
+     steep at the bottom and flat after about six.</p>
+  <div id="status">rendering…</div>
+  <div id="row"></div>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

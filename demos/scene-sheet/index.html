@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>scene-sheet — every scene in the registry</title>
+  <style>
+    body { margin: 0; padding: 12px 14px; background: #111; color: #eaeaea;
+           font: 13px/1.5 ui-sans-serif, system-ui, sans-serif; }
+    h1 { font-size: 15px; font-weight: 600; margin: 0; }
+    p.shows { color: #888; margin: 2px 0 10px; }
+    #status { color: #ffaa33; font-variant-numeric: tabular-nums; }
+    #sheet { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; }
+    .tile { display: flex; flex-direction: column; gap: 3px; }
+    .tile canvas { image-rendering: pixelated; border: 1px solid #333; }
+    .tile .cap { color: #aaa; font-size: 12px; font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <h1>scene-sheet</h1>
+  <p class="shows">SHOWS: every scene in the registry, side by side at equal samples.
+     The page that tells you at a glance which scenes exist and which one is broken.</p>
+  <div id="status">loading assets…</div>
+  <div id="sheet"></div>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

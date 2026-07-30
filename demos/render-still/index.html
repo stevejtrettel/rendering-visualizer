@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>render-still — the same scene by all three integrators</title>
+  <style>
+    body { margin: 0; padding: 12px 14px; background: #111; color: #eaeaea;
+           font: 13px/1.5 ui-sans-serif, system-ui, sans-serif; }
+    h1 { font-size: 15px; font-weight: 600; margin: 0; }
+    p.shows { color: #888; margin: 2px 0 10px; max-width: 100ch; }
+    #status { color: #ffaa33; font-variant-numeric: tabular-nums; }
+    #panes { display: flex; gap: 12px; margin-top: 10px; }
+    .pane { display: flex; flex-direction: column; gap: 3px; }
+    .pane canvas { image-rendering: pixelated; border: 1px solid #333; }
+    .pane .cap { color: #aaa; font-size: 12px; font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <h1>render-still</h1>
+  <p class="shows">SHOWS: one scene rendered by every integrator we have — plain path
+     tracing, path tracing with next-event estimation, and bidirectional path tracing — at
+     equal seeds and equal samples, converging side by side. Same image, three estimators:
+     the differences are noise and cost, and the captions carry both.</p>
+  <div id="status">initializing…</div>
+  <div id="panes"></div>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

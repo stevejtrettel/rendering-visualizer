@@ -6,25 +6,59 @@
   <style>
     body { margin: 0; padding: 2rem; background: #111; color: #eaeaea;
            font: 15px/1.5 ui-sans-serif, system-ui, sans-serif; }
-    h1 { font-weight: 600; }
-    p.sub { color: #888; max-width: 600px; }
-    ul.demos { columns: 3; list-style: none; padding: 0; max-width: 900px; }
-    ul.demos a { color: #6ea8fe; text-decoration: none; }
-    ul.demos a:hover { text-decoration: underline; }
+    h1 { font-weight: 600; margin: 0 0 .3rem; }
+    h2 { font-size: 13px; font-weight: 600; color: #ffaa33; margin: 1.6rem 0 .4rem;
+         text-transform: uppercase; letter-spacing: .06em; }
+    p.sub { color: #888; max-width: 66ch; }
+    p.rule { color: #666; max-width: 72ch; font-size: 13px; }
+    ul { list-style: none; padding: 0; max-width: 96ch; }
+    li { margin: .15rem 0; }
+    a { color: #6ea8fe; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .what { color: #999; }
+    .pending { color: #666; }
   </style>
 </head>
 <body>
   <h1>Rendering Visualizer</h1>
   <p class="sub">Bidirectional path tracing, visualized: a CPU renderer and
      three.js visualizations of its light trajectories.</p>
-  <ul class="demos">
-      <li><a href="./demos/v0-cornell/">v0-cornell</a> — CPU path tracer + click-to-inspect trajectories</li>
-      <li><a href="./demos/v1-nee/">v1-nee</a> — PT vs PT+NEE side by side, with shadow-ray inspection</li>
-      <li><a href="./demos/viz-single-path/">viz-single-path</a> — one sample animated bounce by bounce, scrub + export</li>
-      <li><a href="./demos/viz-pixel-samples/">viz-pixel-samples</a> — one pixel's samples flipped through or accumulated</li>
-      <li><a href="./demos/viz-image-forming/">viz-image-forming</a> — a low-res image forming on a floating plane inside the scene</li>
-      <li><a href="./demos/viz-convergence/">viz-convergence</a> — scrub convergence snapshots, wipe between integrators, error view</li>
-      <li><a href="./demos/viz-bdpt-pyramid/">viz-bdpt-pyramid</a> — every BDPT (s,t) strategy live in its own cell, weighted/unweighted</li>
+  <p class="rule">Each page below shows <em>one</em> thing, with every parameter fixed as a
+     constant at the top of its <code>main.ts</code>. Where a page exists to <em>compare</em>
+     kinds of thing — three integrators, three ways a path can end — that comparison is its
+     one control; everything incidental stays a constant.</p>
+
+  <h2>Act 0 — the renderer and the scenes</h2>
+  <ul>
+    <li><a href="./demos/render-still/">render-still</a> <span class="what">— one scene by all three integrators, equal samples, with per-pass cost</span></li>
+    <li><a href="./demos/scene-sheet/">scene-sheet</a> <span class="what">— every scene in the registry at equal samples</span></li>
+    <li><a href="./demos/material-strip/">material-strip</a> <span class="what">— every material the renderer has, one sphere each</span></li>
+    <li><a href="./demos/depth-sweep/">depth-sweep</a> <span class="what">— the image at 1, 2, 3, 4 and 32 bounces</span></li>
+  </ul>
+
+  <h2>Act 1 — the vocabulary of one path</h2>
+  <ul>
+    <li><a href="./demos/path-strategies/">path-strategies</a> <span class="what">— which algorithm builds the path: PT / PT+NEE / BDPT <em>(switch)</em></span></li>
+    <li><a href="./demos/path-outcomes/">path-outcomes</a> <span class="what">— how a walk ends: emitter / roulette death / escape <em>(switch)</em></span></li>
+    <li><a href="./demos/connection-outcomes/">connection-outcomes</a> <span class="what">— one light connection, clear or blocked <em>(switch)</em></span></li>
+  </ul>
+
+  <h2>Act 2 — populations of paths</h2>
+  <ul>
+    <li><a href="./demos/path-swarm/">path-swarm</a> <span class="what">— 100 of one pixel's paths at once, churning; 1 / 2 / full length <em>(switch)</em></span></li>
+    <li><a href="./demos/light-swarm/">light-swarm</a> <span class="what">— 100 paths thrown from the lamp, connecting to the camera <em>(switch)</em></span></li>
+  </ul>
+
+  <h2>Not yet rebuilt</h2>
+  <p class="rule">The remaining multi-purpose pages, kept until their single-purpose
+     replacements land — Act 2 (one pixel, many samples), Act 3 (the image and its noise),
+     Act 4 (bidirectional).</p>
+  <ul>
+    <li><a href="./demos/viz-single-path/">viz-single-path</a> <span class="pending">— one sample animated; bdpt dual-subpath mode; movie export</span></li>
+    <li><a href="./demos/viz-pixel-samples/">viz-pixel-samples</a> <span class="pending">— one pixel's samples flipped or accumulated</span></li>
+    <li><a href="./demos/viz-image-forming/">viz-image-forming</a> <span class="pending">— a low-res image forming on a plane inside the scene</span></li>
+    <li><a href="./demos/viz-convergence/">viz-convergence</a> <span class="pending">— convergence scrub, integrator wipe, error view</span></li>
+    <li><a href="./demos/viz-bdpt-pyramid/">viz-bdpt-pyramid</a> <span class="pending">— every BDPT (s,t) strategy live in its own cell</span></li>
   </ul>
 </body>
 </html>

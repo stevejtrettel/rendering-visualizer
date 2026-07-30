@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>light-swarm — paths thrown from the lamp toward the camera</title>
+  <style>
+    body { margin: 0; padding: 12px 14px 0; background: #111; color: #eaeaea;
+           font: 13px/1.5 ui-sans-serif, system-ui, sans-serif; }
+    h1 { font-size: 15px; font-weight: 600; margin: 0; }
+    p.shows { color: #888; margin: 2px 0 8px; max-width: 100ch; }
+    #info { color: #ffaa33; }
+    .switch { display: flex; gap: 6px; margin: 6px 0 2px; align-items: baseline; }
+    .switch .lab { color: #777; margin-right: 4px; }
+    .switch button { background: #232323; color: #bbb; border: 1px solid #3a3a3a;
+                     border-radius: 4px; padding: 3px 12px; cursor: pointer; font: inherit; }
+    .switch button:hover { background: #303030; }
+    .switch button[aria-pressed="true"] { background: #1c3138; color: #8fe3ff;
+                                          border-color: #2a6a7a; }
+    canvas { display: block; }
+    #viz-pane { margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <h1>light-swarm</h1>
+  <p class="shows">SHOWS: the transport run <em>backwards</em>. A hundred paths thrown out of
+     the lamp (cyan), churning; from each of their vertices the renderer connects to the
+     pinhole — green where that connection is clear, red where a sphere or wall blocks it,
+     nothing at all when the point falls outside the frame. The connection is
+     <em>deterministic</em>, not sampled, so most of them succeed. What makes light tracing
+     different is where the energy goes: each success deposits into whichever pixel it happens
+     to land in, rather than the pixel we set out to render — which is exactly why the film
+     needs a separate splat channel for it.</p>
+  <div class="switch" id="switch"><span class="lab">bounces before the camera:</span></div>
+  <div id="info">tracing…</div>
+  <div id="viz-pane"></div>
+  <div id="controls"></div>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

@@ -51,7 +51,12 @@ self.onmessage = (event: MessageEvent<MainToWorker>) => {
       );
       return;
     }
-    const rgba = film.develop();
+    // splatScale = 1/spp: light-tracing contributions (BDPT's t=1 strategies)
+    // accumulate as raw sums and are averaged at develop time. Defaulting it
+    // to 1 makes any splatting integrator brighten without bound as passes
+    // accumulate — the pooled 'film' reply mode has always passed this, and
+    // 'rgba' mode had simply never been used with BDPT before.
+    const rgba = film.develop({ splatScale: 1 / passesDone });
     const errorRgba = film.developError();
     const reply: PassDoneMessage = {
       type: 'passDone',

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>path-outcomes — the three ways a path can end</title>
+  <style>
+    body { margin: 0; padding: 12px 14px 0; background: #111; color: #eaeaea;
+           font: 13px/1.5 ui-sans-serif, system-ui, sans-serif; }
+    h1 { font-size: 15px; font-weight: 600; margin: 0; }
+    p.shows { color: #888; margin: 2px 0 8px; max-width: 100ch; }
+    #info { color: #ffaa33; }
+    .switch { display: flex; gap: 6px; margin: 6px 0 2px; align-items: baseline; }
+    .switch .lab { color: #777; margin-right: 4px; }
+    .switch button { background: #232323; color: #bbb; border: 1px solid #3a3a3a;
+                     border-radius: 4px; padding: 3px 12px; cursor: pointer; font: inherit; }
+    .switch button:hover { background: #303030; }
+    .switch button[aria-pressed="true"] { background: #3a2f1c; color: #ffcc80;
+                                          border-color: #7a5c2a; }
+    canvas { display: block; }
+    #viz-pane { margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <h1>path-outcomes</h1>
+  <p class="shows">SHOWS: <strong>how a walk ends.</strong> One algorithm (plain path
+     tracing) held fixed while the ending changes — it reaches an emitter and flashes, it is
+     killed mid-flight by Russian roulette, or it leaves the scene and never returns. Two of
+     the three contribute nothing: this is the only page carrying the failure vocabulary, and
+     the sample counter says how many tries each ending took, which is the variance story in
+     miniature. Escaping needs the open scene (a closed box has nowhere to escape to), so that
+     mode swaps scene and vantage.
+     <br>Sibling page: <a href="../path-strategies/">path-strategies</a> holds the sample
+     fixed and varies the <em>algorithm</em> instead.</p>
+  <div class="switch" id="switch"><span class="lab">ends by:</span></div>
+  <div id="info">searching…</div>
+  <div id="viz-pane"></div>
+  <div id="controls"></div>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

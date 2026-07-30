@@ -72,6 +72,81 @@ the general version then.*
 Failures are always visible — occluded connections, RR deaths, escapes.
 Half the pedagogy lives in the failures.
 
+## Demo-set rebuild (agreed 2026-07-29 — supersedes the statuses below)
+
+The demos below were each grown into an option matrix (4–7 selects apiece),
+which made them instruments rather than figures: over-packed to the point
+where they no longer showed any individual thing. Decision: **retire them
+and rebuild as a larger set of single-purpose pages**, one idea per page,
+every parameter a named constant at the top of `main.ts`. Amended the same
+day: where a page exists to COMPARE kinds of thing, that comparison axis is
+its single control — a page that is supposed to show different types of
+path has to let you switch between them. Everything incidental (tier,
+dwell, sample count, resolution) stays a constant. Grouped in acts:
+
+0. the renderer and the scenes (`render-still`, `scene-sheet`,
+   `material-strip`, `depth-sweep`) ✅ 2026-07-29. `render-still` renders
+   with ALL THREE integrators side by side (one worker each, equal seed and
+   spp) and captions each with its ms/pass: measured on `cornell` at 256²,
+   PT ×1.0, NEE ×1.5, **BDPT ×9.3** — i.e. ~6× NEE per pass at the worker's
+   default 32-bounce cap, above design-v2's predicted 3–5×;
+1. the vocabulary of one path ✅ 2026-07-29 — three switchable pages, one
+   comparison axis each: `path-strategies` (PT / PT+NEE / BDPT on one sample,
+   same depth cap, roulette off — the BDPT mode grows the cyan light
+   subpath on the same clock and flashes its connections), `path-outcomes`
+   (emitter / roulette death / escape; the escape mode swaps in
+   `open-stage`), `connection-outcomes` (one NEE connection, clear or
+   blocked). Animation timing is per-page: the substrate default of 4
+   units/second and 1.2 s per vertex was far too slow to watch twice, so
+   these pass `{ speed: 14, momentSeconds: 0.3 }` and loop after a short
+   hold — 2–4 s per playthrough instead of 4–9 s. `path-strategies` runs
+   all three integrators to a shared 6-bounce cap with roulette OFF: the
+   renderer's real default (roulette from depth 3) kills most walks after
+   3–4 bounces in this bright box, which made every path on the page look
+   stunted and let roulette truncate one integrator earlier than another.
+   Roulette is the subject of `path-outcomes` instead. A `one-ray` page was
+   built and then cut: a camera ray is only meaningful fully extended, at
+   which point it is just the first segment of `path-strategies`;
+2. one pixel, many samples (flipbook, path family, per-sample values,
+   image forming) — pending. **Requested 2026-07-29: a DEEP naive-tracing
+   page — long walks, roulette off, showing how long it takes a BSDF-sampled
+   path to stumble onto the light.** Design notes banked while they are
+   fresh:
+   - The quantity to put on screen is *P(the walk has found the emitter
+     within k bounces)*, plus the bounce index of the first hit. Measured
+     baseline for `cornell` (32-bounce cap, roulette from depth 3): a
+     floor pixel needed 13 samples before one reached the light at all.
+     With roulette off, walks in this closed box run essentially to the
+     cap (mean 46 bounces against a 64 cap), so every path eventually
+     gets many chances and the interesting curve is over k, not over spp.
+   - The per-vertex "moment" machinery does NOT scale to this: at
+     `momentSeconds: 0.3` a 40-bounce path spends 12 s on pauses alone.
+     A deep-path page wants moments off (or ~0.02 s) and a much higher
+     speed — i.e. a third timing regime beside the substrate default and
+     the Act 1 figures. Decide it there rather than retro-fitting.
+   - Naive tracing looks bad here specifically because the emitter is a
+     1.6×1.6 quad in a 4×4×13 room; the page should state that solid
+     angle, since it is the whole reason the count is large.
+3. the image and its noise (convergence scrub, wipe, error view, equal
+   time) — pending;
+4. bidirectional (light subpaths alone, one connection, light tracing,
+   the pyramid, balance vs power, the lamp and caustic comparisons) —
+   pending;
+5. probes (sampler scope; a `three-gpu-pathtracer` beauty test — note
+   that package is a dependency NOTHING imports, so tier 3 above is
+   unproven) — pending.
+
+`v0-cornell` and `v1-nee` were deleted in the Act 0/1 pass, which also
+retired `src/viz/three-paths.ts` — the second, static path-drawing
+codepath — leaving `path-elements.ts` + `sample-flip.ts` as the only
+implementation of the visual language.
+
+Two scenes were added for these pages: **`open-stage`** (floor and back
+wall only) and **`material-row`** (four spheres, one per material, on a 2:1
+film). `open-stage` closed a real gap: every previous scene was a closed
+box, so the escaped-ray branch of the schedule — and the "escapes fade
+out" entry in the design language below — had never once executed.
+
 ## Demos — status (updated 2026-07-28)
 
 Built:

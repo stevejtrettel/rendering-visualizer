@@ -67,18 +67,41 @@ structural:
 - `docs/pbrt-notes.md` — distilled PBRT implementation references for the
   BDPT/MLT stages, with section citations.
 
-## Demos so far
+## Demos
 
-`npm run dev` opens the gallery: `v0-cornell` (progressive CPU render +
-click-to-inspect paths), `v1-nee` (PT vs PT+NEE, equal seeds and samples),
-`viz-single-path` (one sample animated bounce by bounce — for bdpt both
-subpaths grow at once with connection flashes; scrub + movie export),
-`viz-pixel-samples` (one pixel's samples flipped through or accumulated),
-`viz-image-forming` (a low-res image forming on a floating plane inside the
-scene), `viz-convergence` (scrub convergence snapshots and wipe between any
-two of PT / NEE / BDPT, image or error view), `viz-bdpt-pyramid` (every
-BDPT strategy accumulating live in its own cell, weighted or unweighted,
-with the weight-sum check running in-browser).
+`npm run dev` opens the gallery. **One page shows one thing**, with every
+parameter fixed as a constant at the top of its `main.ts`. Where a page
+exists to *compare* kinds of thing — three integrators, three ways a path
+can end — that comparison is its single control; everything incidental
+stays a constant. (The old multi-purpose pages were over-packed to the
+point of not showing anything individually; agreed 2026-07-29 to retire
+them for a larger set of single-purpose ones, built in acts.)
+
+- **Act 0 — the renderer and the scenes**: `render-still` (one scene by all
+  three integrators at equal samples, captioned with each one's ms/pass —
+  measured on `cornell`: PT ×1.0, NEE ×1.5, BDPT ×9.3), `scene-sheet`
+  (every registry scene at equal samples), `material-strip` (every
+  material, one sphere each), `depth-sweep` (the image at 1, 2, 3, 4 and
+  32 bounces).
+- **Act 1 — the vocabulary of one path**, all switchable along one axis:
+  `path-strategies` (WHICH ALGORITHM builds the path — PT / PT+NEE / BDPT
+  on one fixed sample; the BDPT mode grows the light subpath in cyan and
+  flashes its connections), `path-outcomes` (HOW A WALK ENDS — emitter /
+  roulette death / escape, with the algorithm fixed), `connection-outcomes`
+  (one light connection, clear or blocked). They animate at ~14 world units
+  per second and loop, so a path takes 2–4 s to draw rather than 9.
+- **Act 2 — populations of paths**: `path-swarm` (100 of one pixel's paths on
+  screen at once, 10 replaced per refresh, switchable between 1 scattering
+  event / 2 / full — at one event the spray IS the material's scattering
+  distribution), `light-swarm` (100 paths thrown from the lamp connecting to
+  the camera: BDPT's t=1 strategies, the light-tracing code path). Both use
+  `src/viz/path-swarm.ts`, which draws a whole population as one buffered
+  `LineSegments`; the visible window is still a pure function of time, so
+  scrub and export work.
+- **Acts 2 (rest)–4 pending**: per-sample values; the image and its noise;
+  bidirectional. Until they land, the remaining old pages stay in the
+  gallery under "not yet rebuilt" (`viz-single-path`, `viz-pixel-samples`,
+  `viz-image-forming`, `viz-convergence`, `viz-bdpt-pyramid`).
 
 ## Commands
 

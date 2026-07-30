@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>path-strategies — what kind of path each algorithm builds</title>
+  <style>
+    body { margin: 0; padding: 12px 14px 0; background: #111; color: #eaeaea;
+           font: 13px/1.5 ui-sans-serif, system-ui, sans-serif; }
+    h1 { font-size: 15px; font-weight: 600; margin: 0; }
+    p.shows { color: #888; margin: 2px 0 8px; max-width: 100ch; }
+    #info { color: #ffaa33; }
+    .switch { display: flex; gap: 6px; margin: 6px 0 2px; align-items: baseline; }
+    .switch .lab { color: #777; margin-right: 4px; }
+    .switch button { background: #232323; color: #bbb; border: 1px solid #3a3a3a;
+                     border-radius: 4px; padding: 3px 12px; cursor: pointer; font: inherit; }
+    .switch button:hover { background: #303030; }
+    .switch button[aria-pressed="true"] { background: #3a2f1c; color: #ffcc80;
+                                          border-color: #7a5c2a; }
+    canvas { display: block; }
+    #viz-pane { margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <h1>path-strategies</h1>
+  <p class="shows">SHOWS: <strong>which algorithm builds the path.</strong> One pixel, one
+     sample, held fixed while the integrator changes — plain path tracing bounces and hopes;
+     NEE tries the light from every vertex; BDPT grows a second path out of the light and
+     connects the two. All three run to the same 6-bounce cap with Russian roulette off, so
+     the pictures are comparable and nothing dies early. The first segment of every one of
+     them is the camera ray leaving the pinhole.
+     <br>Sibling page: <a href="../path-outcomes/">path-outcomes</a> holds the algorithm
+     fixed and varies how the walk <em>ends</em> instead.</p>
+  <div class="switch" id="switch"><span class="lab">integrator:</span></div>
+  <div id="info">tracing…</div>
+  <div id="viz-pane"></div>
+  <div id="controls"></div>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>
