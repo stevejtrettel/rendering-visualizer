@@ -1,9 +1,18 @@
-// D5: the standing integrator-comparison harness. Two workers render the
-// same scene; snapshots are kept at exponentially spaced sample counts
-// (1, 2, 4, … spp). A wipe compositor shows integrator A left of the
-// divider and B right of it — scrub through snapshots (equal-sample or
-// equal-time), toggle image vs false-color error view, drag the divider,
-// export movies. BDPT and MLT drop into this same harness when they exist.
+// D5: the standing integrator-comparison harness. Two worker pools render
+// the same scene under one of two explicit comparison protocols
+// (reworked 2026-07-31):
+//
+// - EQUAL SAMPLES: fix a target count N; both panes snapshot at the SAME
+//   counts 1, 2, 4, …, N, and the scrub steps through counts. The labels
+//   show what each count COSTS each integrator in wall time.
+// - EQUAL TIME: fix a wall-time budget T; both panes snapshot at the SAME
+//   fixed times k·T/12, and the scrub steps through times. The labels show
+//   how far each integrator GOT in the same time.
+//
+// Checkpoints fill in progressively while rendering runs — scrubbing to a
+// not-yet-reached checkpoint shows the pane's latest earlier one, honestly
+// labeled. (MMLT's unit is mutations/pixel; its bootstrap is part of its
+// wall time.)
 import { loadSceneRegistry } from '../_shared/scenes';
 import type { IntegratorName } from '../../src/render/protocol';
 import { WorkerPool } from '../../src/render/pool';
@@ -16,11 +25,42 @@ import { recordFrames, recordWebM } from '../../src/viz/recording';
 const RES = 320;
 const DISPLAY = 640;
 const SEED = 0;
-const MAX_SPP = 256;
+// All panes share one depth cap: comparisons must estimate the SAME
+// truncated transport integral (MMLT fixes depth per chain; the walk-based
+// integrators get the equivalent maxBounces).
+const MAX_DEPTH = 8;
+const TIME_CHECKPOINTS = 12;
+
+type ViewKind = 'image' | 'error';
+type CompareMode = 'sample' | 'time';
+
+let view: ViewKind = 'image';
+let mode: CompareMode = 'sample';
+let sampleTarget = 256;
+let timeBudgetSec = 60;
+let wipe = 0.5;
+let sceneName = 'cornell';
+const desc = () => SCENES[sceneName]!;
+
+// The shared checkpoint axis for the current protocol: sample counts
+// (powers of two up to the target) or wall times (uniform twelfths of the
+// budget, in ms).
+function marks(): number[] {
+  if (mode === 'sample') {
+    const out: number[] = [];
+    for (let n = 1; n < sampleTarget; n *= 2) out.push(n);
+    out.push(sampleTarget);
+    return out;
+  }
+  return Array.from(
+    { length: TIME_CHECKPOINTS },
+    (_, k) => ((k + 1) * timeBudgetSec * 1000) / TIME_CHECKPOINTS,
+  );
+}
 
 interface Snapshot {
-  spp: number;
-  cumMillis: number;
+  count: number; // spp (mpp for MMLT) actually accumulated
+  cumMillis: number; // wall time actually elapsed
   rgba: Uint8ClampedArray<ArrayBuffer>;
   errorRgba: Uint8ClampedArray<ArrayBuffer>;
 }
@@ -28,27 +68,47 @@ interface Snapshot {
 interface Pane {
   name: IntegratorName;
   label: string;
-  snapshots: Snapshot[];
+  snapshots: (Snapshot | null)[]; // parallel to marks(); filled as reached
   restart: () => void;
 }
 
 const infoEl = document.getElementById('info')!;
 const timeline = new Timeline();
 
-let sceneName = 'cornell';
-const desc = () => SCENES[sceneName]!;
-
 // Split the machine's cores between the two panes.
 const POOL_SIZE = Math.max(1, Math.floor(((navigator.hardwareConcurrency || 4) - 2) / 2));
 
+const unitOf = (name: IntegratorName): string => (name === 'mmlt' ? 'mpp' : 'spp');
 const labelOf = (name: IntegratorName): string =>
-  `${{ pt: 'PT', 'pt-nee': 'NEE', bdpt: 'BDPT' }[name]} ×${POOL_SIZE}`;
+  `${{ pt: 'PT', 'pt-nee': 'NEE', bdpt: 'BDPT', mmlt: 'MMLT' }[name]} ×${POOL_SIZE}`;
+
+// Flat dark frame for MMLT's error view (no honest per-pixel SE exists).
+function flatErrorFrame(): Uint8ClampedArray<ArrayBuffer> {
+  const out = new Uint8ClampedArray(RES * RES * 4);
+  for (let i = 0; i < RES * RES; i++) {
+    out[i * 4] = 24;
+    out[i * 4 + 1] = 24;
+    out[i * 4 + 2] = 28;
+    out[i * 4 + 3] = 255;
+  }
+  return out;
+}
+
+// Pool stop conditions for the current protocol.
+const poolCaps = (): { maxSpp: number; maxMillis: number | undefined } =>
+  mode === 'sample'
+    ? { maxSpp: sampleTarget, maxMillis: undefined }
+    : { maxSpp: Number.MAX_SAFE_INTEGER, maxMillis: timeBudgetSec * 1000 };
 
 function makePane(name: IntegratorName): Pane {
-  // Snapshots at (roughly) power-of-two total spp; cumMillis is honest
-  // WALL time — with a pool, summed CPU time would overstate the cost.
-  let nextSnap = 1;
-  const pane: Pane = { name, label: labelOf(name), snapshots: [], restart: () => {} };
+  let paneMarks = marks();
+  let nextIdx = 0;
+  const pane: Pane = {
+    name,
+    label: labelOf(name),
+    snapshots: paneMarks.map(() => null),
+    restart: () => {},
+  };
   const pool = new WorkerPool({
     size: POOL_SIZE,
     description: desc(),
@@ -56,27 +116,36 @@ function makePane(name: IntegratorName): Pane {
     height: RES,
     seed: SEED,
     integrator: name,
-    maxSpp: MAX_SPP,
+    maxDepth: MAX_DEPTH,
+    ...poolCaps(),
     onUpdate: (u) => {
-      if (u.totalSpp >= nextSnap || u.totalSpp >= MAX_SPP) {
-        pane.snapshots.push({
-          spp: u.totalSpp,
+      const reached = (mark: number): boolean =>
+        mode === 'sample' ? u.totalSpp >= mark : u.wallMillis >= mark;
+      let changed = false;
+      while (nextIdx < paneMarks.length && reached(paneMarks[nextIdx]!)) {
+        // splatScale normalizes splats: BDPT's t=1 light tracing by 1/spp;
+        // MMLT's splat-only image by b/mutationsPerPixel (u.mltB rides the
+        // pool update). MMLT's error view is blank — correlated splats
+        // have no per-pixel SE.
+        const scale = (u.mltB ?? 1) / Math.max(1, u.totalSpp);
+        pane.snapshots[nextIdx] = {
+          count: u.totalSpp,
           cumMillis: u.wallMillis,
-          // splatScale normalizes BDPT's t=1 light-tracing splats; a no-op
-          // for integrators that never splat.
-          rgba: u.film.develop({ splatScale: 1 / Math.max(1, u.totalSpp) }),
-          errorRgba: u.film.developError(),
-        });
-        while (nextSnap <= u.totalSpp) nextSnap *= 2;
-        onSnapshotsChanged();
+          rgba: u.film.develop({ splatScale: scale }),
+          errorRgba: u.mltB !== undefined ? flatErrorFrame() : u.film.developError(),
+        };
+        nextIdx += 1;
+        changed = true;
       }
+      if (changed) onSnapshotsChanged();
     },
   });
   pane.restart = () => {
-    pane.snapshots = [];
-    nextSnap = 1;
+    paneMarks = marks();
+    pane.snapshots = paneMarks.map(() => null);
+    nextIdx = 0;
     pane.label = labelOf(pane.name);
-    pool.restart(desc(), pane.name);
+    pool.restart(desc(), { integrator: pane.name, ...poolCaps() });
   };
   return pane;
 }
@@ -84,13 +153,6 @@ function makePane(name: IntegratorName): Pane {
 const panes = [makePane('pt'), makePane('pt-nee')];
 
 // --- The compositor element ---
-type ViewKind = 'image' | 'error';
-type CompareMode = 'sample' | 'time';
-
-let view: ViewKind = 'image';
-let mode: CompareMode = 'sample';
-let wipe = 0.5;
-
 const canvas = document.getElementById('compare') as HTMLCanvasElement;
 canvas.width = RES;
 canvas.height = RES;
@@ -107,40 +169,26 @@ const offscreens = panes.map(() => {
   return c;
 });
 
-// In equal-time mode the scrub axis is the union of both panes' snapshot
-// times; each pane shows its best snapshot within the budget.
-function timeBudgets(): number[] {
-  return [...new Set(panes.flatMap((p) => p.snapshots.map((s) => s.cumMillis)))].sort((a, b) => a - b);
-}
-
-function snapshotFor(pane: Pane, step: number): Snapshot | null {
-  if (pane.snapshots.length === 0) return null;
-  if (mode === 'sample') {
-    return pane.snapshots[Math.min(step, pane.snapshots.length - 1)]!;
+// The pane's snapshot for scrub step `step`: exactly that checkpoint when
+// reached, otherwise the latest earlier one (rendering still under way).
+function snapshotFor(pane: Pane, step: number): { snap: Snapshot; exact: boolean } | null {
+  for (let k = Math.min(step, pane.snapshots.length - 1); k >= 0; k--) {
+    const snap = pane.snapshots[k];
+    if (snap) return { snap, exact: k === step };
   }
-  const budgets = timeBudgets();
-  const budget = budgets[Math.min(step, budgets.length - 1)]!;
-  let best: Snapshot | null = null;
-  for (const s of pane.snapshots) if (s.cumMillis <= budget) best = s;
-  return best ?? pane.snapshots[0]!;
-}
-
-function stepCount(): number {
-  return mode === 'sample'
-    ? Math.max(...panes.map((p) => p.snapshots.length), 1)
-    : Math.max(timeBudgets().length, 1);
+  return null;
 }
 
 class CompareElement implements TimelineElement {
   drawAt(t: number): void {
-    const step = Math.min(stepCount() - 1, Math.max(0, Math.floor(t)));
+    const step = Math.min(marks().length - 1, Math.max(0, Math.floor(t)));
     ctx.clearRect(0, 0, RES, RES);
     const split = Math.round(wipe * RES);
 
     panes.forEach((pane, i) => {
-      const snap = snapshotFor(pane, step);
-      if (!snap) return;
-      const data = view === 'image' ? snap.rgba : snap.errorRgba;
+      const found = snapshotFor(pane, step);
+      if (!found) return;
+      const data = view === 'image' ? found.snap.rgba : found.snap.errorRgba;
       offscreens[i]!.getContext('2d')!.putImageData(new ImageData(data, RES, RES), 0, 0);
       const [sx, sw] = i === 0 ? [0, split] : [split, RES - split];
       if (sw > 0) ctx.drawImage(offscreens[i]!, sx, 0, sw, RES, sx, 0, sw, RES);
@@ -151,9 +199,12 @@ class CompareElement implements TimelineElement {
     ctx.fillRect(split - 1, 0, 2, RES);
     ctx.font = '11px ui-sans-serif, system-ui';
     panes.forEach((pane, i) => {
-      const snap = snapshotFor(pane, step);
-      if (!snap) return;
-      const text = `${pane.label} · ${snap.spp} spp · ${(snap.cumMillis / 1000).toFixed(1)}s`;
+      const found = snapshotFor(pane, step);
+      if (!found) return;
+      const { snap, exact } = found;
+      const text =
+        `${pane.label} · ${snap.count} ${unitOf(pane.name)} · ${(snap.cumMillis / 1000).toFixed(1)}s` +
+        (exact ? '' : ' · rendering…');
       const x = i === 0 ? 8 : RES - 8 - ctx.measureText(text).width;
       ctx.fillStyle = 'rgba(0,0,0,0.55)';
       ctx.fillRect(x - 4, RES - 22, ctx.measureText(text).width + 8, 16);
@@ -165,16 +216,27 @@ class CompareElement implements TimelineElement {
   dispose(): void {}
 }
 
-timeline.add(new CompareElement(), stepCount());
+timeline.add(new CompareElement(), marks().length);
 
 function onSnapshotsChanged(): void {
-  timeline.duration = stepCount();
-  const done = panes.map((p) => p.snapshots.at(-1)?.spp ?? 0);
-  infoEl.textContent =
-    done.every((s) => s >= MAX_SPP)
-      ? `complete: ${MAX_SPP} spp both sides`
-      : `rendering… ${panes[0]!.label} ${done[0]} spp · ${panes[1]!.label} ${done[1]} spp (to ${MAX_SPP})`;
+  timeline.duration = marks().length;
+  const done = panes.map((p) => p.snapshots.filter(Boolean).length);
+  const axis =
+    mode === 'sample'
+      ? `equal samples to ${sampleTarget}`
+      : `equal time to ${timeBudgetSec}s (${TIME_CHECKPOINTS} checkpoints)`;
+  infoEl.textContent = done.every((d) => d >= marks().length)
+    ? `${axis} · complete`
+    : `${axis} · rendering: ${panes[0]!.label} ${done[0]}/${marks().length} · ` +
+      `${panes[1]!.label} ${done[1]}/${marks().length}`;
   timeline.setTime(timeline.time); // refresh with new data
+}
+
+function restartAll(): void {
+  for (const pane of panes) pane.restart();
+  timeline.duration = marks().length;
+  timeline.setTime(Math.min(timeline.time, timeline.duration));
+  onSnapshotsChanged();
 }
 
 // --- Wipe dragging ---
@@ -194,8 +256,21 @@ canvas.addEventListener('pointerup', () => (dragging = false));
 // --- Controls ---
 (document.getElementById('mode') as HTMLSelectElement).addEventListener('change', (e) => {
   mode = (e.target as HTMLSelectElement).value as CompareMode;
-  timeline.duration = stepCount();
-  timeline.setTime(timeline.time);
+  restartAll();
+});
+(document.getElementById('samples') as HTMLInputElement).addEventListener('change', (e) => {
+  const v = Number((e.target as HTMLInputElement).value);
+  if (Number.isFinite(v) && v >= 1) {
+    sampleTarget = Math.floor(v);
+    if (mode === 'sample') restartAll();
+  }
+});
+(document.getElementById('seconds') as HTMLInputElement).addEventListener('change', (e) => {
+  const v = Number((e.target as HTMLInputElement).value);
+  if (Number.isFinite(v) && v >= 1) {
+    timeBudgetSec = v;
+    if (mode === 'time') restartAll();
+  }
 });
 (document.getElementById('view') as HTMLSelectElement).addEventListener('change', (e) => {
   view = (e.target as HTMLSelectElement).value as ViewKind;
@@ -207,8 +282,7 @@ for (const name of Object.keys(SCENES)) {
 }
 sceneSelect.addEventListener('change', () => {
   sceneName = sceneSelect.value;
-  for (const pane of panes) pane.restart();
-  timeline.duration = stepCount();
+  restartAll();
   timeline.setTime(0);
 });
 (['pane0', 'pane1'] as const).forEach((id, i) => {
@@ -216,7 +290,7 @@ sceneSelect.addEventListener('change', () => {
   sel.addEventListener('change', () => {
     panes[i]!.name = sel.value as IntegratorName;
     panes[i]!.restart();
-    timeline.duration = stepCount();
+    onSnapshotsChanged();
     timeline.setTime(0);
   });
 });
@@ -245,3 +319,4 @@ const loop = () => {
 };
 requestAnimationFrame(loop);
 timeline.setTime(0);
+onSnapshotsChanged();

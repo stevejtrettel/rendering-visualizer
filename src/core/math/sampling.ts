@@ -33,6 +33,39 @@ export function cosineHemispherePdf(cosTheta: number): number {
   return cosTheta > 0 ? cosTheta / Math.PI : 0;
 }
 
+// Inverse error function (Giles 2010 single-precision polynomial, as used
+// by pbrt's ErfInv). Turns a uniform sample into a Gaussian one:
+// N(0,1) = sqrt(2) * erfInv(2u - 1) — the MLT small-step mutation's warp.
+export function erfInv(x: number): number {
+  const c = Math.min(0.99999, Math.max(-0.99999, x));
+  let w = -Math.log((1 - c) * (1 + c));
+  let p: number;
+  if (w < 5) {
+    w -= 2.5;
+    p = 2.81022636e-8;
+    p = 3.43273939e-7 + p * w;
+    p = -3.5233877e-6 + p * w;
+    p = -4.39150654e-6 + p * w;
+    p = 0.00021858087 + p * w;
+    p = -0.00125372503 + p * w;
+    p = -0.00417768164 + p * w;
+    p = 0.246640727 + p * w;
+    p = 1.50140941 + p * w;
+  } else {
+    w = Math.sqrt(w) - 3;
+    p = -0.000200214257;
+    p = 0.000100950558 + p * w;
+    p = 0.00134934322 + p * w;
+    p = -0.00367342844 + p * w;
+    p = 0.00573950773 + p * w;
+    p = -0.0076224613 + p * w;
+    p = 0.00943887047 + p * w;
+    p = 1.00167406 + p * w;
+    p = 2.83297682 + p * w;
+  }
+  return p * c;
+}
+
 export function uniformSampleSphere(u: Sample2D): Vec3 {
   const z = 1 - 2 * u[0];
   const r = Math.sqrt(Math.max(0, 1 - z * z));

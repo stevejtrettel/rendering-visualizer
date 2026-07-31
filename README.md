@@ -62,6 +62,8 @@ structural:
   and V1c parallelism pending).
 - `docs/design-v2.md` — bidirectional path tracing: strategy enumeration,
   pure-function MIS, the validation plan (V2 shipped).
+- `docs/design-v3.md` — Metropolis (MMLT): the primary-sample-space chain,
+  bootstrap normalization, chain visualization (V3 shipped).
 - `docs/design-viz.md` — the display/animation system: timeline substrate,
   visual design language for light paths, demo statuses and decisions.
 - `docs/pbrt-notes.md` — distilled PBRT implementation references for the
@@ -78,8 +80,9 @@ point of not showing anything individually; agreed 2026-07-29 to retire
 them for a larger set of single-purpose ones, built in acts.)
 
 - **Act 0 — the renderer and the scenes**: `render-still` (one scene by all
-  three integrators at equal samples, captioned with each one's ms/pass —
-  measured on `cornell`: PT ×1.0, NEE ×1.5, BDPT ×9.3), `scene-sheet`
+  four integrators at equal samples and a shared 8-bounce depth cap,
+  captioned with each one's ms/pass; MMLT's "spp" is mutations/pixel),
+  `scene-sheet`
   (every registry scene at equal samples), `material-strip` (every
   material, one sphere each), `depth-sweep` (the image at 1, 2, 3, 4 and
   32 bounces).
@@ -98,6 +101,11 @@ them for a larger set of single-purpose ones, built in acts.)
   `src/viz/path-swarm.ts`, which draws a whole population as one buffered
   `LineSegments`; the visible window is still a pure function of time, so
   scrub and export work.
+- **Metropolis (V3)**: `viz-mlt-chain` — one deterministic Markov
+  chain replayed from its bootstrap seed: the current path solid, each
+  proposal ghosted (accepts solidify, rejects evaporate), the chain's
+  splat footprints accumulating on a film panel beside it. `viz-convergence`
+  and `render-still` carry `mmlt` panes for the equal-time payoff figures.
 - **Acts 2 (rest)–4 pending**: per-sample values; the image and its noise;
   bidirectional. Until they land, the remaining old pages stay in the
   gallery under "not yet rebuilt" (`viz-single-path`, `viz-pixel-samples`,

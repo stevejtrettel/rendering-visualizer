@@ -38,6 +38,19 @@ export interface ConnectionEvent {
   weight: number;
 }
 
+// One MLT mutation (V3): the proposal's walks and connection arrive through
+// the ordinary events between beginPath/endPath; this event carries the
+// Metropolis decision. The chain viz ghosts the proposal, then solidifies
+// (accepted) or evaporates (rejected) it.
+export interface MutationEvent {
+  index: number; // mutation index within its chain
+  type: 'small' | 'large';
+  accepted: boolean;
+  a: number; // acceptance probability min(1, proposalLum/currentLum)
+  proposalLum: number;
+  currentLum: number;
+}
+
 // Which subpath a walk materialized — camera walks transport Radiance,
 // light walks (BDPT) transport Importance.
 export type WalkRole = 'camera' | 'light';
@@ -49,6 +62,7 @@ export interface Recorder {
   rr(event: RREvent): void;
   shadowRay(event: ShadowRayEvent): void;
   connection(event: ConnectionEvent): void;
+  mutation(event: MutationEvent): void;
   contribution(c: Contribution): void;
   endPath(): void;
 }
@@ -59,6 +73,7 @@ export class NullRecorder implements Recorder {
   rr(): void {}
   shadowRay(): void {}
   connection(): void {}
+  mutation(): void {}
   contribution(): void {}
   endPath(): void {}
 }

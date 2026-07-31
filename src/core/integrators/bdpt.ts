@@ -87,6 +87,25 @@ const connectible = (v: PathVertex): boolean => v.bsdf !== null && hasNonSpecula
 const toAreaAt = (pdfW: number, from: Vec3, to: PathVertex): number =>
   solidAngleToArea(pdfW, from, to.p, to.type === 'camera' ? null : to.ng);
 
+// Camera subpath from an EXPLICIT raster position. MMLT (V3) enters here:
+// its raster is Markov state (mutated camera-stream dims), not a
+// stratification hint. The caller owns the camera stream — this function
+// draws only walk dimensions.
+export function cameraSubpathFromRaster(
+  scene: Scene,
+  raster: Sample2D,
+  sampler: Sampler,
+  recorder: Recorder,
+  options: BDPTOptions,
+): PathVertex[] {
+  const ray = scene.camera.generateRay(raster);
+  const start = cameraVertex(scene.camera, Color.WHITE);
+  const { pdfDir } = scene.camera.pdfWe(ray);
+  return randomWalk(
+    scene, start, ray, Color.WHITE, pdfDir, TransportMode.Radiance, sampler, recorder, walkOptions(options),
+  );
+}
+
 export function generateCameraSubpath(
   scene: Scene,
   pixel: Pixel,
@@ -97,13 +116,7 @@ export function generateCameraSubpath(
   sampler.startStream(CAMERA_STREAM);
   const u = sampler.nextPixel2D();
   const raster: Sample2D = [pixel[0] + u[0], pixel[1] + u[1]];
-  const ray = scene.camera.generateRay(raster);
-  const start = cameraVertex(scene.camera, Color.WHITE);
-  const { pdfDir } = scene.camera.pdfWe(ray);
-  const vertices = randomWalk(
-    scene, start, ray, Color.WHITE, pdfDir, TransportMode.Radiance, sampler, recorder, walkOptions(options),
-  );
-  return { raster, vertices };
+  return { raster, vertices: cameraSubpathFromRaster(scene, raster, sampler, recorder, options) };
 }
 
 export function generateLightSubpath(

@@ -7,12 +7,17 @@ import type { IntegratorName, MainToWorker, PassDoneMessage } from '../../src/re
 
 // --- Figure spec ---
 const SCENE_NAME: SceneName = 'cornell';
-const INTEGRATORS: readonly IntegratorName[] = ['pt', 'pt-nee', 'bdpt'];
+const INTEGRATORS: readonly IntegratorName[] = ['pt', 'pt-nee', 'bdpt', 'mmlt'];
 const LABELS: Record<IntegratorName, string> = {
   pt: 'PT (BSDF sampling only)',
   'pt-nee': 'PT + NEE (MIS)',
   bdpt: 'BDPT',
+  mmlt: 'MMLT (Metropolis)',
 };
+// One shared depth cap: four estimators of the SAME truncated integral —
+// any lasting difference between panes is noise or a bug, never transport
+// the caps admit unequally. (MMLT's "spp" is mutations/pixel.)
+const MAX_DEPTH = 8;
 const RES = 256;
 const DISPLAY = 400;
 const TARGET_SPP = 512;
@@ -54,11 +59,11 @@ const panes: Pane[] = INTEGRATORS.map((name) => {
     totalMillis += msg.passMillis;
     pane.spp = msg.samplesPerPixel;
     pane.avgMillis = totalMillis / pane.spp;
-    cap.textContent = `${LABELS[name]} · ${pane.spp} spp · ${pane.avgMillis.toFixed(0)} ms/pass`;
+    cap.textContent = `${LABELS[name]} · ${pane.spp} ${name === 'mmlt' ? 'mpp' : 'spp'} · ${pane.avgMillis.toFixed(0)} ms/pass`;
     report();
     if (msg.samplesPerPixel < TARGET_SPP) post({ type: 'pass', sampleIndex: msg.samplesPerPixel });
   };
-  post({ type: 'init', description, width: RES, height: RES, seed: SEED, integrator: name });
+  post({ type: 'init', description, width: RES, height: RES, seed: SEED, integrator: name, maxDepth: MAX_DEPTH });
   post({ type: 'pass', sampleIndex: 0 });
   return pane;
 });

@@ -147,6 +147,13 @@ film). `open-stage` closed a real gap: every previous scene was a closed
 box, so the escaped-ray branch of the schedule — and the "escapes fade
 out" entry in the design language below — had never once executed.
 
+Added 2026-07-30 with V3: **`door-ajar`** (Veach & Guibas 1997's door
+scene in our box) — the divider wall with a slit whose width is the
+difficulty dial; the tuning table lives with the scene in
+`demos/_shared/scenes.ts`. The Metropolis showcase: equal-time in
+`viz-convergence`, MMLT resolves the red-lit room while BDPT is still
+firefly grain.
+
 ## Demos — status (updated 2026-07-28)
 
 Built:
@@ -192,6 +199,14 @@ Built since (V2, 2026-07-29):
 - **D6 — path swarm** ✅ (as the bdpt accumulate view in
   `demos/viz-pixel-samples`): each sample's light subpath draws in cyan
   beside the amber camera bundle — transport as flow from both ends.
+
+Built since (V3, 2026-07-30):
+- **viz-mlt-chain** ✅: the design-language MLT row realized — one
+  deterministic chain replayed from its bootstrap seed (current path solid,
+  proposal ghosted, accept solidifies / reject evaporates), with the
+  chain's splat footprints accumulating on a film panel and per-mutation
+  step-type/acceptance readouts. Chain choice is a constant; chain 8 (seed
+  0) is a depth-5 glass-crossing chain chosen by probe.
 
 Pending, to be selected against the talk's figure list (none exists yet;
 dozens of figures expected once drafting starts).

@@ -75,7 +75,10 @@ threeScene.add(pathsGroup);
 
 // --- State + rebuild ---
 let inspectScene = buildScene(desc(), PREVIEW_SIZE, PREVIEW_SIZE);
-const integrators: Record<IntegratorName, Integrator> = {
+// MMLT is chain-based, not per-pixel — it cannot replay a pixel's samples
+// and stays out of this demo by type.
+type PixelIntegratorName = Exclude<IntegratorName, 'mmlt'>;
+const integrators: Record<PixelIntegratorName, Integrator> = {
   pt: new UnidirectionalPT(),
   'pt-nee': new NEEPathTracer(),
   bdpt: new BDPT(),
@@ -85,7 +88,7 @@ const timeline = new Timeline();
 const infoEl = document.getElementById('info')!;
 
 let pixel: readonly [number, number] = [80, 118];
-let integratorName: IntegratorName = 'pt-nee';
+let integratorName: PixelIntegratorName = 'pt-nee';
 let mode: SampleMode = 'flip';
 let dwell = 0.1;
 let count = 100;
@@ -135,7 +138,7 @@ preview.addEventListener('click', (event) => {
   rebuild();
 });
 sel('integrator').addEventListener('change', (e) => {
-  integratorName = (e.target as HTMLSelectElement).value as IntegratorName;
+  integratorName = (e.target as HTMLSelectElement).value as PixelIntegratorName;
   rebuild();
 });
 sel('mode').addEventListener('change', (e) => {

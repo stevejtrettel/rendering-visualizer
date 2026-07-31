@@ -10,9 +10,12 @@ import type { FilmPassMessage, InitMessage, IntegratorName, WorkerToMain } from 
 import { Film } from './film';
 
 export interface PoolUpdate {
-  totalSpp: number;
+  totalSpp: number; // for MMLT: total mutation batches = mutations/pixel
   wallMillis: number;
   film: Film; // merged — develop()/developError() as needed
+  // MMLT only: bootstrap normalization (identical across workers).
+  // Develop the merged film with splatScale = mltB / totalSpp.
+  mltB?: number;
 }
 
 export interface PoolOptions {
@@ -22,7 +25,13 @@ export interface PoolOptions {
   height: number;
   seed: number;
   integrator: IntegratorName;
+  // Shared depth cap forwarded to every worker (see protocol.ts).
+  maxDepth?: number;
+  // Stop scheduling when total spp reaches maxSpp, or (if set) when wall
+  // time since restart exceeds maxMillis — whichever the comparison
+  // protocol fixes. In-flight passes still land (labels stay honest).
   maxSpp: number;
+  maxMillis?: number;
   onUpdate: (u: PoolUpdate) => void;
 }
 
@@ -32,6 +41,7 @@ export class WorkerPool {
   private passCounts: number[] = [];
   private epoch = 0;
   private startTime = 0;
+  private mltB: number | undefined;
   private opts: PoolOptions;
   private readonly merged: Film;
 
@@ -49,11 +59,15 @@ export class WorkerPool {
     this.restart(opts.description);
   }
 
-  restart(description: SceneDescription, integrator?: IntegratorName): void {
+  restart(
+    description: SceneDescription,
+    overrides: Partial<Pick<PoolOptions, 'integrator' | 'maxSpp' | 'maxMillis'>> = {},
+  ): void {
     this.epoch += 1;
-    this.opts = { ...this.opts, description, integrator: integrator ?? this.opts.integrator };
+    this.opts = { ...this.opts, description, ...overrides };
     this.films.fill(null);
     this.passCounts.fill(0);
+    this.mltB = undefined;
     this.startTime = performance.now();
     this.workers.forEach((worker, k) => {
       const init: InitMessage = {
@@ -63,6 +77,7 @@ export class WorkerPool {
         height: this.opts.height,
         seed: this.opts.seed,
         integrator: this.opts.integrator,
+        ...(this.opts.maxDepth !== undefined ? { maxDepth: this.opts.maxDepth } : {}),
         epoch: this.epoch,
         reply: 'film',
       };
@@ -76,10 +91,13 @@ export class WorkerPool {
     const m = msg as FilmPassMessage;
     this.films[index] = m.film;
     this.passCounts[index] = m.passesDone;
+    if (m.mltB !== undefined) this.mltB = m.mltB;
 
     // Next sample index for this worker: k + passesDone * size.
     const next = index + m.passesDone * this.opts.size;
-    if (next < this.opts.maxSpp) {
+    const withinTime =
+      this.opts.maxMillis === undefined || performance.now() - this.startTime < this.opts.maxMillis;
+    if (next < this.opts.maxSpp && withinTime) {
       this.workers[index]!.postMessage({ type: 'pass', sampleIndex: next });
     }
 
@@ -97,6 +115,7 @@ export class WorkerPool {
       totalSpp,
       wallMillis: performance.now() - this.startTime,
       film: this.merged,
+      ...(this.mltB !== undefined ? { mltB: this.mltB } : {}),
     });
   }
 

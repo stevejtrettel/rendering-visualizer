@@ -167,6 +167,10 @@ then backup and apply the pending mutation. Small step: wrapped Gaussian,
 Large step: fresh uniform (prob 0.3). `reject()` restores this iteration's
 touched samples **and decrements the iteration counter**. Forgetting the
 lazy large-step reset (or the decrement) are the two classic PSSMLT bugs.
+DELIBERATE DIVERGENCE (2026-07-30, agreed): pbrt zero-initializes
+`PrimarySample.value`; we materialize new coordinates as fresh uniforms
+dated at the last accepted large step — the eager-equivalent marginal
+(uniform ⊛ wrapped Gaussian = uniform). Do not "fix" back to pbrt.
 
 **Streams**: `startStream(i)` + `globalDim = i + 3·sampleIndex++`; streams
 camera=0, light=1, connection=2. Without them, a subpath length change

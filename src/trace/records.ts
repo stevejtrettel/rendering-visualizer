@@ -4,7 +4,7 @@
 import type { PathVertex } from '../core/integrators/vertex';
 import type { Contribution } from '../core/integrators/types';
 import type { SeedKey } from '../core/sampler/sampler';
-import type { ConnectionEvent, Recorder, RREvent, ShadowRayEvent, WalkRole } from './recorder';
+import type { ConnectionEvent, MutationEvent, Recorder, RREvent, ShadowRayEvent, WalkRole } from './recorder';
 
 export type Tuple3 = readonly [number, number, number];
 
@@ -58,6 +58,9 @@ export interface PathRecord {
   shadowRays: ShadowRayRecord[];
   connections: ConnectionRecord[];
   contributions: ContributionRecord[];
+  // MLT (V3): one record per mutation — the walks/connection above are the
+  // PROPOSAL's; this is the Metropolis decision about it. Null outside MLT.
+  mutation: MutationEvent | null;
 }
 
 const t3 = (v: { x: number; y: number; z: number }): Tuple3 => [v.x, v.y, v.z];
@@ -93,6 +96,7 @@ export class ArrayRecorder implements Recorder {
       shadowRays: [],
       connections: [],
       contributions: [],
+      mutation: null,
     };
   }
 
@@ -126,6 +130,10 @@ export class ArrayRecorder implements Recorder {
       blockedAt: event.blockedAt ? t3(event.blockedAt) : null,
       weight: event.weight,
     });
+  }
+
+  mutation(event: MutationEvent): void {
+    if (this.current) this.current.mutation = event;
   }
 
   contribution(c: Contribution): void {

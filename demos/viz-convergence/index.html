@@ -14,6 +14,8 @@
     #side .row { display: flex; gap: 6px; align-items: center; justify-content: space-between; }
     #side select { background: #2a2a2a; color: #eaeaea; border: 1px solid #444;
                    border-radius: 4px; padding: 3px 8px; cursor: pointer; }
+    #side input { background: #2a2a2a; color: #eaeaea; border: 1px solid #444;
+                  border-radius: 4px; padding: 3px 8px; }
     #side .note { color: #888; font-size: 12px; }
     #compare { cursor: ew-resize; display: block; }
   </style>
@@ -32,6 +34,12 @@
           <option value="time">equal time</option>
         </select>
       </div>
+      <div class="row"><span>sample target</span>
+        <input id="samples" type="number" min="1" value="256" style="width: 5em">
+      </div>
+      <div class="row"><span>time budget (s)</span>
+        <input id="seconds" type="number" min="1" value="60" style="width: 5em">
+      </div>
       <div class="row"><span>view</span>
         <select id="view">
           <option value="image" selected>image</option>
@@ -46,6 +54,7 @@
           <option value="pt" selected>PT</option>
           <option value="pt-nee">NEE</option>
           <option value="bdpt">BDPT</option>
+          <option value="mmlt">MMLT</option>
         </select>
       </div>
       <div class="row"><span>right</span>
@@ -53,10 +62,12 @@
           <option value="pt">PT</option>
           <option value="pt-nee" selected>NEE</option>
           <option value="bdpt">BDPT</option>
+          <option value="mmlt">MMLT</option>
         </select>
       </div>
       <div class="note">BDPT's error view reflects its camera-sample strategies; t=1 splat variance is not error-tracked</div>
-      <div class="note">snapshots at 1, 2, 4, … spp as they finish; scrubbing steps through them</div>
+      <div class="note">MMLT counts mutations/pixel (mpp); its bootstrap counts toward its wall time; its error view is blank — correlated splats have no per-pixel SE</div>
+      <div class="note">equal samples: both panes snapshot at the same 1, 2, 4, … N counts (labels show each one's cost in seconds). equal time: both snapshot at the same twelfths of the budget (labels show how far each got). scrub steps through checkpoints as they fill in</div>
     </div>
     <div><canvas id="compare"></canvas></div>
   </div>

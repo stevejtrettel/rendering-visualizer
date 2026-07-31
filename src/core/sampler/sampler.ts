@@ -15,6 +15,14 @@ export const pixelSeedKey = (x: number, y: number, sampleIndex: number): SeedKey
   index: sampleIndex,
 });
 
+// MLT chains are keyed by their bootstrap index. The tag ('MLT' in ASCII)
+// keeps chain streams disjoint from pixel streams whatever the hash does
+// with sequence length.
+export const chainSeedKey = (bootstrapIndex: number): SeedKey => ({
+  seq: [0x4d4c54, bootstrapIndex],
+  index: 0,
+});
+
 // Stream indices for startStream (BDPT phase boundaries; interleaved by the
 // future PSSMLT sampler so a length change in one subpath cannot shift
 // another subpath's dimensions).

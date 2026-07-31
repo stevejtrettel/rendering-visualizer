@@ -85,10 +85,56 @@ const MATERIAL_ROW: SceneDescription = {
   ],
 };
 
+// The Metropolis showcase (Veach & Guibas 1997's door scene, in our box):
+// a divider wall splits the Cornell interior at z = 0; the only light sits
+// in the hidden back room, so EVERY complete path must thread the slit.
+// PT must blunder through it and then hit the light; NEE's shadow rays are
+// blocked from all but the wedge of floor with direct sight through the
+// gap; BDPT's light subpaths stay trapped in the back room and its
+// connections cross the divider — all strategies share one bottleneck, so
+// MIS has nothing good to mix. MLT pays the search once (bootstrap) and
+// keeps threaded paths threaded under small steps.
+//
+// The gap is the difficulty dial, tuned by probe (2026-07-30, 16², depth
+// cap 8): at 0.2 / 0.35 / 0.5 the nonzero-sample fractions are PT 0.11 /
+// 0.18 / 0.23 %, NEE 3.8 / 6.8 / 9.5 % (the wedge with direct sight
+// through the slit), BDPT 30 / 42 / 51 % (flattering — nonzero says
+// nothing about weight), while a 65536-sample bootstrap lands 1.5k / 2.6k
+// / 3.5k hits — b good to ~2–3 % everywhere (an error in b is a global
+// brightness bias on the MLT image). Default 0.25: maximal misery for the
+// independent samplers with the bootstrap still comfortably healthy.
+const DOOR_WHITE = { kind: 'lambert' as const, albedo: [0.73, 0.73, 0.73] as const };
+export function doorAjarScene(gap = 0.25): SceneDescription {
+  const frameEnd = -1.6; // fixed door-frame strip [-2, frameEnd], then the gap
+  return {
+    camera: CORNELL.camera,
+    primitives: [
+      // The shared shell (floor/ceiling/left/right span BOTH rooms; the
+      // ghosted front wall stays the visualizer's window).
+      ...CORNELL.primitives.filter((p) =>
+        ['floor', 'ceiling', 'back', 'left', 'right', 'front'].includes(p.name!)),
+      // Divider at z = 0, full-height slit between the two slabs. Quads are
+      // zero-thickness and Lambert reflects from both faces, so one quad
+      // per slab serves both rooms. e1 x e2 faces the camera room (+z).
+      { name: 'doorFrame', shape: { kind: 'quad', q: [-2, 0, 0], e1: [2 + frameEnd, 0, 0], e2: [0, 4, 0] }, material: DOOR_WHITE },
+      { name: 'doorSlab', shape: { kind: 'quad', q: [frameEnd + gap, 0, 0], e1: [2 - frameEnd - gap, 0, 0], e2: [0, 4, 0] }, material: DOOR_WHITE },
+      // The only light: on the back room's far wall, off-axis from the slit
+      // so most transport needs a back-room bounce before threading it.
+      { name: 'light', shape: { kind: 'quad', q: [0.4, 1.2, -1.999], e1: [1.2, 0, 0], e2: [0, 1.6, 0] }, material: { kind: 'lambert', albedo: [0, 0, 0] }, emission: { radiance: [120, 120, 120] } },
+      // Camera-room furniture (in FRONT of the divider, unlike cornell's).
+      // The near ball is glass: it sits in the light wedge, so the slit
+      // light refracts through it — caustics fed through a door gap.
+      { name: 'glassBall', shape: { kind: 'sphere', center: [-0.9, 0.8, 1.2], radius: 0.8 }, material: { kind: 'dielectric', ior: 1.5 } },
+      { name: 'ballBlue', shape: { kind: 'sphere', center: [0.9, 0.55, 2.4], radius: 0.55 }, material: { kind: 'lambert', albedo: [0.35, 0.45, 0.8] } },
+    ],
+  };
+}
+
 export const SCENES = {
   cornell: CORNELL,
   'cornell-glass': CORNELL_GLASS,
   'cornell-lamp': CORNELL_LAMP,
+  'door-ajar': doorAjarScene(),
   'open-stage': OPEN_STAGE,
   'material-row': MATERIAL_ROW,
 } satisfies Record<string, SceneDescription>;
