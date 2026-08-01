@@ -79,8 +79,11 @@ const timeline = new Timeline();
 const POOL_SIZE = Math.max(1, Math.floor(((navigator.hardwareConcurrency || 4) - 2) / 2));
 
 const unitOf = (name: IntegratorName): string => (name === 'mmlt' ? 'mpp' : 'spp');
+// ReSTIR passes are not exchangeable (pass k needs pass k-1's reservoirs):
+// its panes run one sequential worker; everything else uses the full pool.
+const workersFor = (name: IntegratorName): number => (name === 'restir' ? 1 : POOL_SIZE);
 const labelOf = (name: IntegratorName): string =>
-  `${{ pt: 'PT', 'pt-nee': 'NEE', bdpt: 'BDPT', mmlt: 'MMLT' }[name]} ×${POOL_SIZE}`;
+  `${{ pt: 'PT', 'pt-nee': 'NEE', bdpt: 'BDPT', mmlt: 'MMLT', restir: 'ReSTIR' }[name]} ×${workersFor(name)}`;
 
 // Flat dark frame for MMLT's error view (no honest per-pixel SE exists).
 function flatErrorFrame(): Uint8ClampedArray<ArrayBuffer> {
@@ -117,6 +120,7 @@ function makePane(name: IntegratorName): Pane {
     seed: SEED,
     integrator: name,
     maxDepth: MAX_DEPTH,
+    activeWorkers: workersFor(name),
     ...poolCaps(),
     onUpdate: (u) => {
       const reached = (mark: number): boolean =>
@@ -145,7 +149,7 @@ function makePane(name: IntegratorName): Pane {
     pane.snapshots = paneMarks.map(() => null);
     nextIdx = 0;
     pane.label = labelOf(pane.name);
-    pool.restart(desc(), { integrator: pane.name, ...poolCaps() });
+    pool.restart(desc(), { integrator: pane.name, activeWorkers: workersFor(pane.name), ...poolCaps() });
   };
   return pane;
 }

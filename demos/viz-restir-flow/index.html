@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>viz-restir-flow — reservoirs sharing samples across the image</title>
+  <style>
+    body { margin: 0; background: #111; color: #eaeaea;
+           font: 13px/1.5 ui-sans-serif, system-ui, sans-serif; }
+    #bar { padding: 8px 14px; display: flex; gap: 1.5em; align-items: baseline; }
+    #bar .hint { color: #888; }
+    #info { color: #ffaa33; }
+    #layout { display: flex; gap: 14px; padding: 8px 14px; }
+    .panel { display: flex; flex-direction: column; gap: 6px; }
+    .panel .cap { color: #999; font-size: 12px; max-width: 52ch; }
+    .stack { position: relative; }
+    .stack canvas { display: block; image-rendering: pixelated; }
+    #overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
+    #render { cursor: crosshair; }
+    #controls { padding: 8px 14px; display: flex; gap: 10px; align-items: center; }
+    #controls button { background: #2a2a2a; color: #eaeaea; border: 1px solid #444;
+                       border-radius: 4px; padding: 4px 12px; cursor: pointer; }
+    #pixel-info { color: #9ad; }
+    .legend { color: #888; font-size: 12px; }
+    .legend b { font-weight: 600; }
+    .fresh { color: #ffb054; } .temporal { color: #6fa8ff; } .spatial { color: #55cc77; }
+  </style>
+</head>
+<body>
+  <div id="bar">
+    <strong>viz-restir-flow</strong>
+    <span id="info">first pass…</span>
+    <span class="hint">click a pixel: its reservoir's light sample (☀ marker) and the reuse lineage that delivered it</span>
+  </div>
+  <div id="layout">
+    <div class="panel">
+      <div class="stack">
+        <canvas id="render" width="128" height="128"></canvas>
+        <canvas id="overlay" width="512" height="512"></canvas>
+      </div>
+      <span class="cap">the accumulating render; arrows trace the clicked pixel's reservoir back
+        through the spatial neighbors and past passes that supplied it — one lucky
+        discovery, shared instead of rediscovered</span>
+      <span id="pixel-info">no pixel selected</span>
+    </div>
+    <div class="panel">
+      <canvas id="sources" width="128" height="128"></canvas>
+      <span class="cap">where each pixel's CURRENT sample came from this pass:
+        <b class="fresh">fresh candidates</b> · <b class="temporal">temporal (last pass)</b> ·
+        <b class="spatial">spatial (a neighbor)</b> · dark = no sample (miss/delta)</span>
+    </div>
+  </div>
+  <div id="controls">
+    <button id="play">❚❚ pause</button>
+    <button id="step">step 1 pass</button>
+    <span class="legend" id="stats"></span>
+  </div>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

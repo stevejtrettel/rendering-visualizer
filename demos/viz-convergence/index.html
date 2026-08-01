@@ -55,6 +55,7 @@
           <option value="pt-nee">NEE</option>
           <option value="bdpt">BDPT</option>
           <option value="mmlt">MMLT</option>
+          <option value="restir">ReSTIR</option>
         </select>
       </div>
       <div class="row"><span>right</span>
@@ -63,10 +64,12 @@
           <option value="pt-nee" selected>NEE</option>
           <option value="bdpt">BDPT</option>
           <option value="mmlt">MMLT</option>
+          <option value="restir">ReSTIR</option>
         </select>
       </div>
       <div class="note">BDPT's error view reflects its camera-sample strategies; t=1 splat variance is not error-tracked</div>
       <div class="note">MMLT counts mutations/pixel (mpp); its bootstrap counts toward its wall time; its error view is blank — correlated splats have no per-pixel SE</div>
+      <div class="note">ReSTIR runs ONE sequential worker (its passes are not parallelizable) and reuses samples across pixels and passes — its error view understates true error where samples correlate</div>
       <div class="note">equal samples: both panes snapshot at the same 1, 2, 4, … N counts (labels show each one's cost in seconds). equal time: both snapshot at the same twelfths of the budget (labels show how far each got). scrub steps through checkpoints as they fill in</div>
     </div>
     <div><canvas id="compare"></canvas></div>

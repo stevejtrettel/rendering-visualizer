@@ -1,12 +1,19 @@
 # V4 Design — ReSTIR (full transport; reservoirs own primary direct)
 
-**Status**: agreed 2026-07-31 after research + discussion (supersedes the
-draft design-restir.md; sources banked in `docs/restir-notes.md` with
-equation-level citations to the SIGGRAPH 2023 course notes, Bitterli
-2020, Talbot 2005, Lin 2022, Bitterli 2022). Decisions recorded below;
-each overridable at checkpoint review. Veach path-space perturbations are
-SHELVED (not V4; revisit only if the talk demands it). Execution plan:
-`docs/plan-v4-implementation.md`.
+**Status**: ✅ V4a shipped 2026-07-31 (all three checkpoints of
+`docs/plan-v4-implementation.md`). core/restir (reservoir + pairwise MIS)
++ PowerLightSampler; RestirRunner frame driver (full transport,
+reservoirs own primary direct); 'restir' in the worker protocol
+(activeWorkers = 1 — passes are not exchangeable); demos:
+`viz-restir-flow`, panes in viz-convergence and render-still; chandelier
+scene. Validation: the full course-Tip-4.4 ladder including the ungated
+1/M negative control (18% darkening detected; pairwise exact). Measured
+regime split recorded below (direct component wins 1.9×/15×-per-pass;
+full frames lose ~3× at equal wall time — per-frame quality vs
+wall-clock convergence is the figure). V4b (gated faithful reconnection
+reuse of the indirect tail) remains open, to be decided against these
+numbers. Sources banked in `docs/restir-notes.md`. Veach path-space
+perturbations remain SHELVED.
 
 ## What ReSTIR is, stated for the talk
 
@@ -33,6 +40,19 @@ guiding) / splat it (photon methods) — with ReSTIR as the corner
 real-time engines actually adopted.
 
 ## The staged scope (agreed)
+
+**Checkpoint-2 measurement note (2026-07-31)**: on the DIRECT component
+ReSTIR wins decisively at equal time (chandelier, 64²: relMSE 2.37e-3 vs
+NEE-DI 4.49e-3, and the shadowed-M32 config matches NEE-DI's quality in
+18 passes vs 272 samples — ~15× per-pass efficiency). On FULL frames at
+equal wall time it loses ~3× to pt-nee: a ReSTIR pass costs 2.5–6× a
+pt-nee pass, the indirect walk's noise scales with pass count, and
+temporal correlation saturates the direct advantage. This is ReSTIR's
+native regime made visible — per-frame quality (real-time, denoiser
+input), not asymptotic wall-clock convergence — and the demos present
+BOTH protocols (equal samples flatters it honestly; equal time tells the
+offline truth). Recorded follow-up option, not built: rebalancing the
+composition with multiple indirect walks per reservoir pass.
 
 **V4a (this design): full transport, reservoirs own direct lighting at
 the primary vertex.** The Bitterli-2020 integration pattern: per pixel,
@@ -75,10 +95,14 @@ investigation.
    normal/depth similarity, NEVER by reservoir contents — Tip 4.1) →
    shade: direct = f(Y)·W_Y at the primary vertex + continue the walk
    for indirect (ordinary pt-nee machinery from the primary hit onward).
-3. **Target function p̂ = f_s·G·V·L_e, visibility included** (Tip 4.3;
-   we are CPU-side and correctness-first). The unshadowed Talbot variant
-   is a demo toggle — "what dropping V from the target costs" is a
-   figure.
+3. **Target function: UNSHADOWED p̂ = f_s·G·L_e by default** (REVISED at
+   checkpoint-2 review from the draft's shadowed default, on measurement:
+   shadowed-p̂ candidates cost M shadow rays per pixel per pass and lost
+   2.5× at equal wall time on the chandelier; shading always traces the
+   deferred visibility ray, so unbiasedness is untouched — the choice
+   only moves the target's quality/cost point). Shadowed p̂ (Tip 4.3)
+   stays as the quality toggle and the "what visibility in the target
+   buys" figure.
 4. **Primary-vertex strategy accounting** (the one genuinely subtle
    correctness point, resolved from the sources): at the primary vertex,
    direct lighting is owned ENTIRELY by the reservoir — the continued

@@ -18,6 +18,7 @@ import type { Integrator } from '../core/integrators/types';
 import { Film } from './film';
 import { renderPass } from './driver';
 import { MltRunner } from './mlt-driver';
+import { RestirRunner } from './restir-driver';
 import type { MainToWorker, PassDoneMessage } from './protocol';
 
 // MMLT batch geometry: each pass spends ~nPixels mutations, split into
@@ -30,6 +31,7 @@ let film: Film | null = null;
 let sampler: IndependentSampler | null = null;
 let integrator: Integrator = new UnidirectionalPT();
 let mlt: MltRunner | null = null;
+let restir: RestirRunner | null = null;
 let chainsPerBatch = 0;
 let mutationsPerChain = 0;
 let epoch = 0;
@@ -56,11 +58,21 @@ self.onmessage = (event: MessageEvent<MainToWorker>) => {
     film = new Film(msg.width, msg.height);
     sampler = new IndependentSampler(msg.seed);
     const depth = msg.maxDepth;
+    restir = null;
     if (msg.integrator === 'mmlt') {
       mlt = new MltRunner(scene, film, { seed: msg.seed, ...(depth !== undefined ? { maxDepth: depth } : {}) });
       const nPixels = msg.width * msg.height;
       chainsPerBatch = Math.max(1, Math.round(nPixels / TARGET_CHAIN_LENGTH));
       mutationsPerChain = Math.ceil(nPixels / chainsPerBatch);
+    } else if (msg.integrator === 'restir') {
+      // Non-exchangeable passes: callers must schedule this worker alone
+      // (pool activeWorkers = 1); msg.sampleIndex is advisory — the runner
+      // owns the pass sequence.
+      mlt = null;
+      restir = new RestirRunner(scene, film, {
+        seed: msg.seed,
+        ...(depth !== undefined ? { maxBounces: depth } : {}),
+      });
     } else {
       mlt = null;
       integrator =
@@ -80,6 +92,8 @@ self.onmessage = (event: MessageEvent<MainToWorker>) => {
     const t0 = performance.now();
     if (mlt) {
       mlt.runChains(msg.sampleIndex * chainsPerBatch, chainsPerBatch, mutationsPerChain);
+    } else if (restir) {
+      restir.pass();
     } else {
       renderPass(scene, integrator, sampler, film, msg.sampleIndex);
     }

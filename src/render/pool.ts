@@ -32,6 +32,11 @@ export interface PoolOptions {
   // protocol fixes. In-flight passes still land (labels stay honest).
   maxSpp: number;
   maxMillis?: number;
+  // How many of the pool's workers actually render (default: all).
+  // Integrators with non-exchangeable passes (restir) must use 1 — pass k
+  // depends on pass k-1's worker-side state, so sample-parallel splitting
+  // would silently break the algorithm.
+  activeWorkers?: number;
   onUpdate: (u: PoolUpdate) => void;
 }
 
@@ -61,7 +66,7 @@ export class WorkerPool {
 
   restart(
     description: SceneDescription,
-    overrides: Partial<Pick<PoolOptions, 'integrator' | 'maxSpp' | 'maxMillis'>> = {},
+    overrides: Partial<Pick<PoolOptions, 'integrator' | 'maxSpp' | 'maxMillis' | 'activeWorkers'>> = {},
   ): void {
     this.epoch += 1;
     this.opts = { ...this.opts, description, ...overrides };
@@ -69,7 +74,9 @@ export class WorkerPool {
     this.passCounts.fill(0);
     this.mltB = undefined;
     this.startTime = performance.now();
+    const active = Math.min(this.opts.activeWorkers ?? this.opts.size, this.opts.size);
     this.workers.forEach((worker, k) => {
+      if (k >= active) return; // idle worker under this configuration
       const init: InitMessage = {
         type: 'init',
         description,
@@ -93,8 +100,9 @@ export class WorkerPool {
     this.passCounts[index] = m.passesDone;
     if (m.mltB !== undefined) this.mltB = m.mltB;
 
-    // Next sample index for this worker: k + passesDone * size.
-    const next = index + m.passesDone * this.opts.size;
+    // Next sample index for this worker: k + passesDone * activeWorkers.
+    const active = Math.min(this.opts.activeWorkers ?? this.opts.size, this.opts.size);
+    const next = index + m.passesDone * active;
     const withinTime =
       this.opts.maxMillis === undefined || performance.now() - this.startTime < this.opts.maxMillis;
     if (next < this.opts.maxSpp && withinTime) {

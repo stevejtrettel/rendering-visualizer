@@ -208,6 +208,14 @@ Built since (V3, 2026-07-30):
   step-type/acceptance readouts. Chain choice is a constant; chain 8 (seed
   0) is a depth-5 glass-crossing chain chosen by probe.
 
+Built since (V4, 2026-07-31):
+- **viz-restir-flow** ✅: ReSTIR's reuse made visible — per-pixel source
+  map (fresh amber / temporal blue / spatial green), click-to-trace
+  adoption lineage across neighbors and passes ending at the discovering
+  pixel, live source-mix stats. Image-space arrows rather than in-scene
+  lines (the lineage IS an image-space structure); an in-scene variant is
+  a recorded option if the talk wants it.
+
 Pending, to be selected against the talk's figure list (none exists yet;
 dozens of figures expected once drafting starts).
 

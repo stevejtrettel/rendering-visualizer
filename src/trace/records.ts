@@ -4,7 +4,7 @@
 import type { PathVertex } from '../core/integrators/vertex';
 import type { Contribution } from '../core/integrators/types';
 import type { SeedKey } from '../core/sampler/sampler';
-import type { ConnectionEvent, MutationEvent, Recorder, RREvent, ShadowRayEvent, WalkRole } from './recorder';
+import type { ConnectionEvent, MutationEvent, Recorder, ReuseEvent, RREvent, ShadowRayEvent, WalkRole } from './recorder';
 
 export type Tuple3 = readonly [number, number, number];
 
@@ -47,6 +47,15 @@ export interface ConnectionRecord {
   weight: number;
 }
 
+export interface ReuseRecord {
+  x: number;
+  y: number;
+  pass: number;
+  lightP: Tuple3 | null;
+  source: 'none' | 'fresh' | 'temporal' | 'spatial';
+  from: readonly [number, number] | null;
+}
+
 export interface PathRecord {
   key: { seq: readonly number[]; index: number };
   // Camera-walk vertices — the field every existing consumer reads; BDPT's
@@ -57,6 +66,8 @@ export interface PathRecord {
   rr: RREvent[];
   shadowRays: ShadowRayRecord[];
   connections: ConnectionRecord[];
+  // ReSTIR (V4): reservoir lineage events for this pixel/pass.
+  reuses: ReuseRecord[];
   contributions: ContributionRecord[];
   // MLT (V3): one record per mutation — the walks/connection above are the
   // PROPOSAL's; this is the Metropolis decision about it. Null outside MLT.
@@ -95,6 +106,7 @@ export class ArrayRecorder implements Recorder {
       rr: [],
       shadowRays: [],
       connections: [],
+      reuses: [],
       contributions: [],
       mutation: null,
     };
@@ -129,6 +141,17 @@ export class ArrayRecorder implements Recorder {
       occluded: event.occluded,
       blockedAt: event.blockedAt ? t3(event.blockedAt) : null,
       weight: event.weight,
+    });
+  }
+
+  reuse(event: ReuseEvent): void {
+    this.current?.reuses.push({
+      x: event.x,
+      y: event.y,
+      pass: event.pass,
+      lightP: event.lightP ? t3(event.lightP) : null,
+      source: event.source,
+      from: event.from,
     });
   }
 

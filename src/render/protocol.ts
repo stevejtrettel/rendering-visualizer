@@ -2,7 +2,7 @@
 // structured-clone-safe: the scene travels as its declarative description.
 import type { SceneDescription } from '../core/scene/scene';
 
-export type IntegratorName = 'pt' | 'pt-nee' | 'bdpt' | 'mmlt';
+export type IntegratorName = 'pt' | 'pt-nee' | 'bdpt' | 'mmlt' | 'restir';
 
 export interface InitMessage {
   type: 'init';
@@ -23,6 +23,10 @@ export interface InitMessage {
   reply?: 'rgba' | 'film';
 }
 
+// For ReSTIR, passes are NOT exchangeable (pass k consumes pass k-1's
+// reservoirs): 'restir' must run on ONE worker with sequential passes —
+// the pool's activeWorkers option exists for exactly this.
+//
 // For MMLT, `sampleIndex` names a mutation BATCH: batch k runs the disjoint
 // chain-index range [k*K, (k+1)*K) for one mutation-per-pixel's worth of
 // mutations, so the pool's sample-parallel scheduling partitions chains

@@ -7,12 +7,13 @@ import type { IntegratorName, MainToWorker, PassDoneMessage } from '../../src/re
 
 // --- Figure spec ---
 const SCENE_NAME: SceneName = 'cornell';
-const INTEGRATORS: readonly IntegratorName[] = ['pt', 'pt-nee', 'bdpt', 'mmlt'];
+const INTEGRATORS: readonly IntegratorName[] = ['pt', 'pt-nee', 'bdpt', 'mmlt', 'restir'];
 const LABELS: Record<IntegratorName, string> = {
   pt: 'PT (BSDF sampling only)',
   'pt-nee': 'PT + NEE (MIS)',
   bdpt: 'BDPT',
   mmlt: 'MMLT (Metropolis)',
+  restir: 'ReSTIR (reservoir reuse)',
 };
 // One shared depth cap: four estimators of the SAME truncated integral —
 // any lasting difference between panes is noise or a bug, never transport

@@ -130,10 +130,54 @@ export function doorAjarScene(gap = 0.25): SceneDescription {
   };
 }
 
+// The many-light showcase (V4/ReSTIR): an 8×8 grid of small colored ceiling
+// emitters with a ~50× radiance spread. Uniform light selection wastes most
+// draws on dim panels; power selection helps; per-pixel resampling + reuse
+// is the point. Radiance and hue are deterministic functions of the grid
+// index so the scene is stable across sessions.
+const CHANDELIER_PALETTE: readonly ColorTuple3[] = [
+  [1.0, 0.6, 0.3], // warm orange
+  [0.4, 0.6, 1.0], // cool blue
+  [1.0, 0.9, 0.6], // soft white
+  [0.5, 1.0, 0.6], // green
+  [1.0, 0.5, 0.8], // pink
+  [0.7, 0.8, 1.0], // pale blue
+];
+type ColorTuple3 = readonly [number, number, number];
+function chandelierEmitters(): SceneDescription['primitives'] {
+  const out: SceneDescription['primitives'] = [];
+  const cell = 0.18; // emitter half-extent... quad edge length
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 8; j++) {
+      const k = i * 8 + j;
+      // Brightness cycles over ~1.7 decades: 0.4 .. 20 (50×), deterministic.
+      const brightness = 0.4 * Math.pow(50, (k % 7) / 6);
+      const [r, g, b] = CHANDELIER_PALETTE[k % CHANDELIER_PALETTE.length]!;
+      const x = -1.6 + 0.2 + i * 0.4 - cell / 2;
+      const z = -1.6 + 0.2 + j * 0.4 - cell / 2;
+      out.push({
+        name: `lamp-${i}-${j}`,
+        shape: { kind: 'quad', q: [x, 3.998, z], e1: [cell, 0, 0], e2: [0, 0, cell] },
+        material: { kind: 'lambert', albedo: [0, 0, 0] },
+        emission: { radiance: [r * brightness, g * brightness, b * brightness] },
+      });
+    }
+  }
+  return out;
+}
+const CHANDELIER: SceneDescription = {
+  camera: CORNELL.camera,
+  primitives: [
+    ...CORNELL.primitives.filter((p) => p.name !== 'light'),
+    ...chandelierEmitters(),
+  ],
+};
+
 export const SCENES = {
   cornell: CORNELL,
   'cornell-glass': CORNELL_GLASS,
   'cornell-lamp': CORNELL_LAMP,
+  chandelier: CHANDELIER,
   'door-ajar': doorAjarScene(),
   'open-stage': OPEN_STAGE,
   'material-row': MATERIAL_ROW,

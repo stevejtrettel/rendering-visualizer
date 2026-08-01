@@ -77,7 +77,7 @@ threeScene.add(pathsGroup);
 let inspectScene = buildScene(desc(), PREVIEW_SIZE, PREVIEW_SIZE);
 // MMLT is chain-based, not per-pixel — it cannot replay a pixel's samples
 // and stays out of this demo by type.
-type PixelIntegratorName = Exclude<IntegratorName, 'mmlt'>;
+type PixelIntegratorName = Exclude<IntegratorName, 'mmlt' | 'restir'>;
 const integrators: Record<PixelIntegratorName, Integrator> = {
   pt: new UnidirectionalPT(),
   'pt-nee': new NEEPathTracer(),

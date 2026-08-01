@@ -64,6 +64,9 @@ structural:
   pure-function MIS, the validation plan (V2 shipped).
 - `docs/design-v3.md` — Metropolis (MMLT): the primary-sample-space chain,
   bootstrap normalization, chain visualization (V3 shipped).
+- `docs/design-v4.md` — ReSTIR: reservoir resampling, pairwise MIS,
+  reuse across pixels and passes (V4 shipped); `docs/restir-notes.md`
+  banks the course-notes math with equation-level citations.
 - `docs/design-viz.md` — the display/animation system: timeline substrate,
   visual design language for light paths, demo statuses and decisions.
 - `docs/pbrt-notes.md` — distilled PBRT implementation references for the
@@ -101,6 +104,12 @@ them for a larger set of single-purpose ones, built in acts.)
   `src/viz/path-swarm.ts`, which draws a whole population as one buffered
   `LineSegments`; the visible window is still a pure function of time, so
   scrub and export work.
+- **ReSTIR (V4)**: `viz-restir-flow` — the parallel-reuse mirror of the
+  MLT chain figure: a source map colors each pixel by where its reservoir
+  sample came from (fresh / temporal / spatial), and clicking a pixel
+  traces the adoption lineage back to the pixel that discovered the
+  sample. `viz-convergence` and `render-still` carry `restir` panes
+  (single sequential worker — its passes are not parallelizable).
 - **Metropolis (V3)**: `viz-mlt-chain` — one deterministic Markov
   chain replayed from its bootstrap seed: the current path solid, each
   proposal ghosted (accepts solidify, rejects evaporate), the chain's

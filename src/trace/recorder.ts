@@ -51,6 +51,20 @@ export interface MutationEvent {
   currentLum: number;
 }
 
+// One pixel's reservoir lineage for one ReSTIR pass (V4): where the
+// finally-selected light sample came from. 'fresh' = this pass's own
+// candidates; 'temporal' = inherited from the previous pass; 'spatial' =
+// adopted from the neighbor at `from`. The flow visualizer draws these as
+// arrows and watches discoveries propagate.
+export interface ReuseEvent {
+  x: number;
+  y: number;
+  pass: number;
+  lightP: Vec3 | null; // selected light sample position (null reservoir: none)
+  source: 'none' | 'fresh' | 'temporal' | 'spatial';
+  from: readonly [number, number] | null; // source pixel for 'spatial'
+}
+
 // Which subpath a walk materialized — camera walks transport Radiance,
 // light walks (BDPT) transport Importance.
 export type WalkRole = 'camera' | 'light';
@@ -63,6 +77,7 @@ export interface Recorder {
   shadowRay(event: ShadowRayEvent): void;
   connection(event: ConnectionEvent): void;
   mutation(event: MutationEvent): void;
+  reuse(event: ReuseEvent): void;
   contribution(c: Contribution): void;
   endPath(): void;
 }
@@ -74,6 +89,7 @@ export class NullRecorder implements Recorder {
   shadowRay(): void {}
   connection(): void {}
   mutation(): void {}
+  reuse(): void {}
   contribution(): void {}
   endPath(): void {}
 }

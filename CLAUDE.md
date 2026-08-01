@@ -7,12 +7,13 @@ then implement. This applies to every feature, not just large ones.
 ## Architecture (agreed 2026-07-28 — see README.md, and the design docs in
 ## docs/: design-v0, design-v1, design-v1c, design-viz, design-v2,
 ## design-v3, design-v4, pbrt-notes, restir-notes. Decisions and their
-## rationale live there; check statuses before proposing work. V2 (BDPT)
-## and V3 (MMLT) are shipped. Veach path-space perturbations are SHELVED
-## (2026-07-31). NEXT UP: V4 = ReSTIR (full transport; reservoirs own
-## primary direct lighting) — docs/plan-v4-implementation.md is the
-## agreed staged plan; execute it checkpoint by checkpoint, stopping for
-## Steve's review at each.)
+## rationale live there; check statuses before proposing work. V2 (BDPT),
+## V3 (MMLT), and V4a (ReSTIR) are shipped. Veach path-space perturbations
+## are SHELVED (2026-07-31). NEXT UP: nothing agreed — candidates are the
+## V4b decision (design-v4: gated reconnection reuse of the indirect
+## tail, to be argued from the recorded measurements) and the talk's
+## figure list (design-viz has been waiting on it). Discuss with Steve
+## before any code.)
 
 - TypeScript everywhere, strict mode. The CPU renderer is TS, not native —
   the shared core between renderer and visualization is the whole point.
