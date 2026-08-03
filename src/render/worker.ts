@@ -12,6 +12,7 @@ import { buildScene, type Scene } from '../core/scene/scene';
 import { IndependentSampler } from '../core/sampler/independent';
 import { UnidirectionalPT } from '../core/integrators/pt';
 import { NEEPathTracer } from '../core/integrators/pt-nee';
+import { SMSPathTracer } from '../core/integrators/pt-sms';
 import { BDPT } from '../core/integrators/bdpt';
 import { DEFAULT_WALK_OPTIONS } from '../core/integrators/walk';
 import type { Integrator } from '../core/integrators/types';
@@ -78,9 +79,11 @@ self.onmessage = (event: MessageEvent<MainToWorker>) => {
       integrator =
         msg.integrator === 'bdpt'
           ? new BDPT(depth !== undefined ? { maxBounces: depth } : {})
-          : msg.integrator === 'pt-nee'
-            ? new NEEPathTracer(depth !== undefined ? { maxBounces: depth } : {})
-            : new UnidirectionalPT(depth !== undefined ? { ...DEFAULT_WALK_OPTIONS, maxBounces: depth } : DEFAULT_WALK_OPTIONS);
+          : msg.integrator === 'pt-sms'
+            ? new SMSPathTracer(depth !== undefined ? { maxBounces: depth } : {})
+            : msg.integrator === 'pt-nee'
+              ? new NEEPathTracer(depth !== undefined ? { maxBounces: depth } : {})
+              : new UnidirectionalPT(depth !== undefined ? { ...DEFAULT_WALK_OPTIONS, maxBounces: depth } : DEFAULT_WALK_OPTIONS);
     }
     epoch = msg.epoch ?? 0;
     replyMode = msg.reply ?? 'rgba';

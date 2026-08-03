@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>pixel-paths-beauty — everything that feeds one pixel, path-traced on demand</title>
+  <style>
+    body { margin: 0; padding: 12px 14px 0; background: #111; color: #eaeaea;
+           font: 13px/1.5 ui-sans-serif, system-ui, sans-serif; }
+    h1 { font-size: 15px; font-weight: 600; margin: 0; }
+    p.shows { color: #888; margin: 2px 0 8px; max-width: 100ch; }
+    #info { color: #ffaa33; }
+    .row { display: flex; gap: 14px; margin: 6px 0 2px; align-items: baseline; }
+    .row button { background: #232323; color: #bbb; border: 1px solid #3a3a3a;
+                  border-radius: 4px; padding: 3px 12px; cursor: pointer; font: inherit; }
+    .row button:hover { background: #303030; }
+    .switch { display: flex; gap: 6px; align-items: baseline; }
+    .switch .lab { color: #777; margin-right: 4px; }
+    .switch button { background: #232323; color: #bbb; border: 1px solid #3a3a3a;
+                     border-radius: 4px; padding: 3px 12px; cursor: pointer; font: inherit; }
+    .switch button:hover { background: #303030; }
+    .switch button[aria-pressed="true"] { background: #1c3138; color: #8fe3ff;
+                                          border-color: #2a6a7a; }
+    canvas { display: block; }
+    #viz-pane { margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <h1>pixel-paths-beauty</h1>
+  <p class="shows">SHOWS: everything that feeds one pixel. Fifty unidirectional walks from the
+     camera through one pixel — the renderer's real sampling, roulette and all — traced out as
+     matte amber strands fanning from the pinhole into the box: bright where throughput
+     survives, dim where it fades, a strand ending on the lamp wherever a walk found light.
+     The page starts as a plain three.js preview (orbit freely, instant); the switch hands the
+     same scene to <code>three-gpu-pathtracer</code> for a converging beauty render.</p>
+  <div class="row">
+    <div class="switch" id="switch"><span class="lab">render:</span></div>
+    <button id="save">save PNG</button>
+  </div>
+  <div id="info">tracing…</div>
+  <div id="viz-pane"></div>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

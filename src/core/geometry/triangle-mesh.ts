@@ -48,7 +48,19 @@ export class TriangleMesh implements Shape {
     const nsLen = ns.length();
     ns = nsLen > 0 ? ns.scale(1 / nsLen) : ng;
     if (ng.dot(ns) < 0) ng = ng.neg(); // keep the two on the same side
-    return { t, p, ng, ns, uv: [bu, bv] };
+    // Barycentric parameterization p(u, v) = (1−u−v)p0 + u·p1 + v·p2: the
+    // position partials are the edges. Shading-normal partials by the
+    // quotient rule on the normalized interpolant, projected ⊥ ns; zero on
+    // degenerate (flat-shaded) normals.
+    let dndu = Vec3.ZERO;
+    let dndv = Vec3.ZERO;
+    if (nsLen > 0) {
+      const dnduRaw = new Vec3(N[ib]! - N[ia]!, N[ib + 1]! - N[ia + 1]!, N[ib + 2]! - N[ia + 2]!).scale(1 / nsLen);
+      const dndvRaw = new Vec3(N[ic]! - N[ia]!, N[ic + 1]! - N[ia + 1]!, N[ic + 2]! - N[ia + 2]!).scale(1 / nsLen);
+      dndu = dnduRaw.sub(ns.scale(ns.dot(dnduRaw)));
+      dndv = dndvRaw.sub(ns.scale(ns.dot(dndvRaw)));
+    }
+    return { t, p, ng, ns, uv: [bu, bv], dpdu: e1, dpdv: e2, dndu, dndv };
   }
 
   intersectP(ray: Ray, tMax: number): boolean {

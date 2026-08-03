@@ -83,7 +83,7 @@ const unitOf = (name: IntegratorName): string => (name === 'mmlt' ? 'mpp' : 'spp
 // its panes run one sequential worker; everything else uses the full pool.
 const workersFor = (name: IntegratorName): number => (name === 'restir' ? 1 : POOL_SIZE);
 const labelOf = (name: IntegratorName): string =>
-  `${{ pt: 'PT', 'pt-nee': 'NEE', bdpt: 'BDPT', mmlt: 'MMLT', restir: 'ReSTIR' }[name]} ×${workersFor(name)}`;
+  `${{ pt: 'PT', 'pt-nee': 'NEE', 'pt-sms': 'SMS', bdpt: 'BDPT', mmlt: 'MMLT', restir: 'ReSTIR' }[name]} ×${workersFor(name)}`;
 
 // Flat dark frame for MMLT's error view (no honest per-pixel SE exists).
 function flatErrorFrame(): Uint8ClampedArray<ArrayBuffer> {

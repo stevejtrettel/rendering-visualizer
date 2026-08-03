@@ -15,6 +15,7 @@ import { IndependentSampler } from '../../src/core/sampler/independent';
 import { pixelSeedKey } from '../../src/core/sampler/sampler';
 import { UnidirectionalPT } from '../../src/core/integrators/pt';
 import { NEEPathTracer } from '../../src/core/integrators/pt-nee';
+import { SMSPathTracer } from '../../src/core/integrators/pt-sms';
 import { BDPT } from '../../src/core/integrators/bdpt';
 import type { Integrator } from '../../src/core/integrators/types';
 import { ArrayRecorder, type PathRecord } from '../../src/trace/records';
@@ -81,6 +82,7 @@ type PixelIntegratorName = Exclude<IntegratorName, 'mmlt' | 'restir'>;
 const integrators: Record<PixelIntegratorName, Integrator> = {
   pt: new UnidirectionalPT(),
   'pt-nee': new NEEPathTracer(),
+  'pt-sms': new SMSPathTracer(),
   bdpt: new BDPT(),
 };
 const sampler = new IndependentSampler(SEED);

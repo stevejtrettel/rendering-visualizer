@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>viz-manifold-walk</title>
+    <style>
+      body { margin: 0; background: #111; color: #eaeaea; font: 13px/1.5 ui-sans-serif, system-ui, sans-serif; padding: 10px 14px; }
+      h1 { font-size: 15px; font-weight: 600; margin: 0; }
+      p.shows { color: #888; margin: 2px 0 8px; max-width: 100ch; }
+      .switch { display: flex; gap: 6px; margin: 6px 0 2px; align-items: baseline; }
+      .switch .lab { color: #777; margin-right: 4px; width: 74px; text-align: right; }
+      .switch button { background: #232323; color: #bbb; border: 1px solid #3a3a3a; border-radius: 4px; padding: 3px 12px; cursor: pointer; font: inherit; }
+      .switch button:hover { background: #303030; }
+      .switch button[aria-pressed="true"] { background: #3a2f1c; color: #ffcc80; border-color: #7a5c2a; }
+      #info { color: #ffaa33; margin: 6px 0; min-height: 1.5em; }
+      #viz-pane { position: relative; }
+      canvas { display: block; }
+      #controls { margin-top: 6px; }
+    </style>
+  </head>
+  <body>
+    <h1>viz-manifold-walk</h1>
+    <p class="shows">
+      SHOWS: <strong>the Newton walk that solves a specular connection.</strong>
+      A diffuse receiver point and a light point are FIXED; each attempt seeds a
+      point on the specular caster (dotted line) and Newton-iterates it across the
+      surface — candidate dots ramp red&#8594;green as the constraint residual falls —
+      until the path snaps into a valid specular connection (solid chain) or the
+      walk fails and evaporates. The M attempts of one biased-SMS estimate play in
+      sequence; distinct roots keep their color.
+    </p>
+    <div class="switch" id="switch-scene"><span class="lab">scene:</span></div>
+    <div class="switch" id="switch-constraint"><span class="lab">constraint:</span></div>
+    <div class="switch" id="switch-seed"><span class="lab">seed:</span></div>
+    <div class="switch" id="switch-m"><span class="lab">M:</span></div>
+    <div id="info">solving…</div>
+    <div id="viz-pane"></div>
+    <div id="controls"></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

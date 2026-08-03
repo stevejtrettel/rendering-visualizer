@@ -29,6 +29,12 @@ export const chainSeedKey = (bootstrapIndex: number): SeedKey => ({
 export const CAMERA_STREAM = 0;
 export const LIGHT_STREAM = 1;
 export const CONNECTION_STREAM = 2;
+// SMS (V5) draws its light-point and seed dimensions here. The dimension
+// count is data-dependent (Bernoulli trials), which the walk streams'
+// fixed layout forbids — a dedicated stream keeps that variability from
+// ever touching them. (No-op interleaving for ordinary samplers; pt-sms
+// is not an MLT-hosted integrator.)
+export const SMS_STREAM = 3;
 
 export interface Sampler {
   // Establish deterministic state for this key; `dimension` resumes

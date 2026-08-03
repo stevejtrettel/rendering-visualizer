@@ -14,7 +14,16 @@ const sameHemisphere = (a: Vec3, b: Vec3) => a.z * b.z > 0;
 export class SmoothConductor implements BxDF {
   readonly flags = SPECULAR | REFLECTION;
 
+  // SMS (V5): eta = 1 is the manifold walk's REFLECTION branch.
+  readonly manifoldEta = 1;
+
   constructor(readonly f0: Color) {}
+
+  // SMS (V5): Fresnel along a SOLVED reflection pair — the deterministic
+  // counterpart of sample(), same schlick convention.
+  specularChainThroughput(cosReceiver: number, _mode: TransportMode): Color {
+    return schlick(this.f0, Math.abs(cosReceiver));
+  }
 
   eval(_wo: Vec3, _wi: Vec3, _mode: TransportMode): Color {
     return Color.BLACK;

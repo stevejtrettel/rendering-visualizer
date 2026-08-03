@@ -42,7 +42,18 @@ export class Quad implements Shape {
     const p = ray.at(t);
     const uv = this.uvOf(p);
     if (!uv) return null;
-    return { t, p, ng: this.n, ns: this.n, uv };
+    // p(u, v) = q + u·e1 + v·e2: the partials are the edges; flat, so dn = 0.
+    return {
+      t,
+      p,
+      ng: this.n,
+      ns: this.n,
+      uv,
+      dpdu: this.e1,
+      dpdv: this.e2,
+      dndu: Vec3.ZERO,
+      dndv: Vec3.ZERO,
+    };
   }
 
   intersectP(ray: Ray, tMax: number): boolean {

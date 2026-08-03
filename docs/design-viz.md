@@ -132,9 +132,38 @@ dwell, sample count, resolution) stays a constant. Grouped in acts:
 4. bidirectional (light subpaths alone, one connection, light tracing,
    the pyramid, balance vs power, the lamp and caustic comparisons) —
    pending;
-5. probes (sampler scope; a `three-gpu-pathtracer` beauty test — note
-   that package is a dependency NOTHING imports, so tier 3 above is
-   unproven) — pending.
+5. probes (sampler scope — pending). The `three-gpu-pathtracer` beauty
+   test happened 2026-08-02: `light-path-beauty` is the first page to
+   import the package, rendering one full-length light-tracing walk as
+   tube geometry inside the scene and converging live — tier 3 proven
+   as a still. `pixel-paths-beauty` followed the same day: 50
+   unidirectional walks of one pixel as matte strands, starting in a
+   plain raster preview with the tracer built only on demand (mode
+   pattern mirrored from elliptic-curve-viz's studio). Findings banked:
+   - The package has NO next-event estimation for emissive meshes — its
+     direct sampling covers only registered lights (RectAreaLight etc.)
+     and the environment. Emissive quad emitters converge by blind BSDF
+     hits; `sceneToBeautyThree` therefore swaps quad emitters for
+     RectAreaLights (intensity = radiance in its sampler, MIS-weighted
+     forward hits) plus an emissive face for camera visibility, since
+     light surfaces are skipped on primary rays (upstream TODO). The
+     face's emission is unsampled, so it runs DIM (`faceEmissiveScale`)
+     — at full radiance it alone re-creates the slowness.
+   - Path count is nearly free (geometry → BVH); UNSAMPLED LIGHT is
+     what doesn't scale. Glowing-path looks (emissive tubes +
+     per-vertex point-light stand-ins) fight both unsampled glow and
+     the many-lights problem; many-path scenes should use matte paths
+     under the sampled lamp (pixel-paths-beauty's configuration).
+   - `preserveDrawingBuffer` is a severe frame-rate hit on macOS
+     ANGLE/Metal (per elliptic-curve-viz); both pages re-render
+     synchronously for PNG capture instead. First shader compile on
+     macOS Chrome takes tens of seconds; cached per origin afterwards.
+   - STATUS (2026-08-02): tier-3 work PAUSED by Steve over speed and
+     code-quality concerns. Before more beauty pages: consolidate the
+     copy-pasted tube/glyph/mode code into a shared module, merge or
+     instance the per-segment meshes, profile where sample time goes,
+     and bless-or-remove the stylized-lighting hacks above. The
+     frame-stepped tier-3 movie pipeline remains unexercised.
 
 `v0-cornell` and `v1-nee` were deleted in the Act 0/1 pass, which also
 retired `src/viz/three-paths.ts` — the second, static path-drawing
@@ -215,6 +244,29 @@ Built since (V4, 2026-07-31):
   pixel, live source-mix stats. Image-space arrows rather than in-scene
   lines (the lineage IS an image-space structure); an in-scene variant is
   a recorded option if the talk wants it.
+
+Built since (V5, 2026-08-02):
+- **viz-manifold-walk** ✅: the SMS marquee — one fixed receiver/light
+  pair, the M attempts of one biased estimate in sequence: dotted seed
+  line, Newton iterates as dots color-ramped red→green by ‖C‖ with a
+  sliding current-point dot and its surface normal, solved chains solid
+  (one hue per distinct root), failures evaporating. Switches: scene
+  (mirror ball / glass bulb / mirror dome), constraint (the measured
+  82%-vs-27% refraction story plays live), seed mode (MNEE's single
+  deterministic root vs random multi-root discovery), M (the M-sweep,
+  per the agreed toggle-first decision). Zeltner's 2D manifold-visualizer
+  presentation, lifted into our scenes.
+- **viz-caustic-fold** ✅: the theory note's picture animated — receiver
+  sweeping a floor line inside a MIRROR DOME (concave: measured fact,
+  banked in design-v5, that a convex ball is single-root and foldless and
+  an interior source refracting out diverges — m = 1 folds need concavity
+  or entry refraction); per-branch |det ∂x₁/∂x₂| graphed live, spiking
+  ~400× where two branches are born at the fold, beside an accumulating
+  pt-sms render whose caustic glows on the same line, with the sweep
+  projected onto it via camera.sampleWi.
+- render-still carries a sixth `pt-sms` pane (measured ×2.4 per pass on
+  cornell — cheap when no casters exist); viz-convergence,
+  viz-pixel-samples, viz-image-forming gained `pt-sms` options.
 
 Pending, to be selected against the talk's figure list (none exists yet;
 dozens of figures expected once drafting starts).

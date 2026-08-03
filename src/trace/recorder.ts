@@ -2,6 +2,7 @@ import type { Vec3 } from '../core/math/vec3';
 import type { PathVertex } from '../core/integrators/vertex';
 import type { Contribution } from '../core/integrators/types';
 import type { SeedKey } from '../core/sampler/sampler';
+import type { ManifoldWalkOutcome } from '../core/manifold/newton';
 
 // Instrumentation events emitted by integrators. Grows with the algorithms:
 // V0 walks + RR, V1a shadow rays, later BDPT connections and MLT mutations.
@@ -65,6 +66,23 @@ export interface ReuseEvent {
   from: readonly [number, number] | null; // source pixel for 'spatial'
 }
 
+// One SMS manifold walk (V5): the Newton iteration's full history — the
+// candidate point sliding across the caster, residual per iterate — plus
+// the validation outcome. The walk visualizer draws the seed chain
+// dotted, iterates color-ramped by cNorm, the solution solid; failed
+// walks evaporate. `trials` carries the unbiased estimator's Bernoulli
+// count when this walk's root got one (null otherwise).
+export interface ManifoldWalkEvent {
+  depth: number; // receiver vertex depth in the camera walk
+  casterName: string;
+  lightP: Vec3;
+  seed: Vec3; // seed point on the caster
+  iterates: readonly { p: Vec3; cNorm: number }[];
+  outcome: ManifoldWalkOutcome;
+  solution: Vec3 | null; // non-null iff outcome is 'converged'
+  trials: number | null;
+}
+
 // Which subpath a walk materialized — camera walks transport Radiance,
 // light walks (BDPT) transport Importance.
 export type WalkRole = 'camera' | 'light';
@@ -78,6 +96,7 @@ export interface Recorder {
   connection(event: ConnectionEvent): void;
   mutation(event: MutationEvent): void;
   reuse(event: ReuseEvent): void;
+  manifoldWalk(event: ManifoldWalkEvent): void;
   contribution(c: Contribution): void;
   endPath(): void;
 }
@@ -90,6 +109,7 @@ export class NullRecorder implements Recorder {
   connection(): void {}
   mutation(): void {}
   reuse(): void {}
+  manifoldWalk(): void {}
   contribution(): void {}
   endPath(): void {}
 }

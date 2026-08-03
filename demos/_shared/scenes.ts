@@ -173,9 +173,27 @@ const CHANDELIER: SceneDescription = {
   ],
 };
 
+// The SMS showcase (V5): a mirror ball on the floor lit by a small bright
+// wall light — the reflective floor caustic is a single-bounce specular
+// chain (light → mirror → floor), and every diffuse point connecting to
+// the light VIA the mirror is a connection NEE structurally cannot make;
+// pt-sms solves for it. The ceiling light is gone: all indirect transport
+// routes through the small source, so the caustic reads against a dim
+// floor.
+const CAUSTIC_RING: SceneDescription = {
+  camera: CORNELL.camera,
+  primitives: [
+    ...CORNELL.primitives.filter((p) => !['light', 'ball', 'ballBlue'].includes(p.name!)),
+    // Small emitter on the left wall, facing into the room (e1 × e2 = +x).
+    { name: 'light', shape: { kind: 'quad', q: [-1.999, 2.2, -0.4], e1: [0, 0.8, 0], e2: [0, 0, 0.8] }, material: { kind: 'lambert', albedo: [0, 0, 0] }, emission: { radiance: [90, 90, 90] } },
+    { name: 'mirrorBall', shape: { kind: 'sphere', center: [0.35, 0.7, 0.3], radius: 0.7 }, material: { kind: 'mirror', f0: [0.95, 0.95, 0.95] } },
+  ],
+};
+
 export const SCENES = {
   cornell: CORNELL,
   'cornell-glass': CORNELL_GLASS,
+  'caustic-ring': CAUSTIC_RING,
   'cornell-lamp': CORNELL_LAMP,
   chandelier: CHANDELIER,
   'door-ajar': doorAjarScene(),

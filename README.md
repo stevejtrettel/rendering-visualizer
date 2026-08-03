@@ -104,6 +104,19 @@ them for a larger set of single-purpose ones, built in acts.)
   `src/viz/path-swarm.ts`, which draws a whole population as one buffered
   `LineSegments`; the visible window is still a pure function of time, so
   scrub and export work.
+- **Specular manifolds (V5)**: `viz-manifold-walk` — the Newton walk that
+  solves a specular connection, played as the M attempts of one SMS
+  estimate (seed dotted, iterates color-ramped by residual, solved chains
+  solid, failures evaporating; switches for scene, constraint
+  formulation, seed mode, and M). `viz-caustic-fold` — a receiver point
+  sweeping through the coffee-cup caustic inside a mirror dome (concave —
+  measured: the convex ball is single-root with no fold anywhere) while
+  the fiber's solution branches and their projection determinant
+  |det ∂x₁/∂x₂| are tracked live: at the fold two branches are born
+  together, the determinant spikes ~400×, and the pt-sms render beside it
+  glows along the same line (a caustic IS a critical value of the
+  projection that forgets the specular vertex). `render-still` and
+  `viz-convergence` carry `pt-sms` panes.
 - **ReSTIR (V4)**: `viz-restir-flow` — the parallel-reuse mirror of the
   MLT chain figure: a source map colors each pixel by where its reservoir
   sample came from (fresh / temporal / spatial), and clicking a pixel

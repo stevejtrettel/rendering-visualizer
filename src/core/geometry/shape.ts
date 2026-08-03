@@ -8,6 +8,14 @@ export interface ShapeIntersection {
   ng: Vec3; // geometric normal — density conversion, ray offsets
   ns: Vec3; // shading normal — BSDF evaluation, geometry terms
   uv: Sample2D;
+  // Local differential geometry with respect to the shape's own (u, v)
+  // parameterization — position and SHADING-normal partials. The manifold
+  // walk's Newton step (core/manifold) consumes these; dndu/dndv carry the
+  // curvature that makes caustic focusing computable.
+  dpdu: Vec3;
+  dpdv: Vec3;
+  dndu: Vec3;
+  dndv: Vec3;
 }
 
 export interface ShapeSample {

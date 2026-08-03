@@ -25,7 +25,16 @@ export class Sphere implements Shape {
     const phi = Math.atan2(n.y, n.x);
     const theta = Math.acos(Math.min(1, Math.max(-1, n.z)));
     const uv: Sample2D = [(phi < 0 ? phi + 2 * Math.PI : phi) / (2 * Math.PI), theta / Math.PI];
-    return { t, p, ng: n, ns: n, uv };
+    // Partials of p(u, v) = c + r(sin θ cos φ, sin θ sin φ, cos θ) with
+    // φ = 2πu, θ = πv; the sphere's normal partials are exact: dn = dp/r.
+    const d = p.sub(this.center);
+    const zr = Math.sqrt(d.x * d.x + d.y * d.y); // r·sinθ
+    const cosPhi = zr > 0 ? d.x / zr : 1;
+    const sinPhi = zr > 0 ? d.y / zr : 0;
+    const dpdu = new Vec3(-d.y, d.x, 0).scale(2 * Math.PI);
+    const dpdv = new Vec3(d.z * cosPhi, d.z * sinPhi, -zr).scale(Math.PI);
+    const invR = 1 / this.radius;
+    return { t, p, ng: n, ns: n, uv, dpdu, dpdv, dndu: dpdu.scale(invR), dndv: dpdv.scale(invR) };
   }
 
   intersectP(ray: Ray, tMax: number): boolean {

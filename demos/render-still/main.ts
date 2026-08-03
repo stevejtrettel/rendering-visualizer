@@ -7,10 +7,11 @@ import type { IntegratorName, MainToWorker, PassDoneMessage } from '../../src/re
 
 // --- Figure spec ---
 const SCENE_NAME: SceneName = 'cornell';
-const INTEGRATORS: readonly IntegratorName[] = ['pt', 'pt-nee', 'bdpt', 'mmlt', 'restir'];
+const INTEGRATORS: readonly IntegratorName[] = ['pt', 'pt-nee', 'pt-sms', 'bdpt', 'mmlt', 'restir'];
 const LABELS: Record<IntegratorName, string> = {
   pt: 'PT (BSDF sampling only)',
   'pt-nee': 'PT + NEE (MIS)',
+  'pt-sms': 'PT + NEE + SMS (manifold)',
   bdpt: 'BDPT',
   mmlt: 'MMLT (Metropolis)',
   restir: 'ReSTIR (reservoir reuse)',

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>light-path-beauty — one long light path, path-traced</title>
+  <style>
+    body { margin: 0; padding: 12px 14px 0; background: #111; color: #eaeaea;
+           font: 13px/1.5 ui-sans-serif, system-ui, sans-serif; }
+    h1 { font-size: 15px; font-weight: 600; margin: 0; }
+    p.shows { color: #888; margin: 2px 0 8px; max-width: 100ch; }
+    #info { color: #ffaa33; }
+    .row { display: flex; gap: 6px; margin: 6px 0 2px; align-items: baseline; }
+    .row button { background: #232323; color: #bbb; border: 1px solid #3a3a3a;
+                  border-radius: 4px; padding: 3px 12px; cursor: pointer; font: inherit; }
+    .row button:hover { background: #303030; }
+    .switch { display: flex; gap: 6px; margin: 6px 0 2px; align-items: baseline; }
+    .switch .lab { color: #777; margin-right: 4px; }
+    .switch button { background: #232323; color: #bbb; border: 1px solid #3a3a3a;
+                     border-radius: 4px; padding: 3px 12px; cursor: pointer; font: inherit; }
+    .switch button:hover { background: #303030; }
+    .switch button[aria-pressed="true"] { background: #1c3138; color: #8fe3ff;
+                                          border-color: #2a6a7a; }
+    canvas { display: block; }
+    #viz-pane { margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <h1>light-path-beauty</h1>
+  <p class="shows">SHOWS: one complete transport path as a physical object. A single long walk
+     thrown out of the lamp — eight bounces wandering the box (cyan) — whose final vertex sees
+     the pinhole, closed by the green connection to a little camera. The switch chooses what
+     lights the room: <em>lit by the path</em> dims the lamp to a whisper and lets the glowing
+     walk throw its pools of colored light on the walls (stylized, converges slowly);
+     <em>lit by the lamp</em> runs the ceiling emitter at its true radiance through a sampled
+     area light, with the path as plain colored geometry (fully sampled, converges fast). Both
+     are rendered with <code>three-gpu-pathtracer</code>, converging live. Orbit freely; the
+     accumulation restarts on every move.</p>
+  <div class="switch" id="switch"><span class="lab">lighting:</span></div>
+  <div class="row"><button id="save">save PNG</button></div>
+  <div id="info">tracing…</div>
+  <div id="viz-pane"></div>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

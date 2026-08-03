@@ -24,6 +24,28 @@ export class Dielectric implements BxDF {
     return 0;
   }
 
+  // SMS (V5): relative IOR of the manifold walk's prescribed event — the
+  // eta convention of core/manifold (≠ 1 means the REFRACTION branch).
+  get manifoldEta(): number {
+    return this.ior;
+  }
+
+  // SMS (V5): throughput of radiance crossing this delta interface along a
+  // SOLVED transmission pair — the deterministic-direction counterpart of
+  // sample()'s transmission branch, with identical Fresnel and η²
+  // conventions (cosReceiver = local cosine of the direction toward the
+  // receiver, signed against the shading normal). The delta eval() ≡ black
+  // contract stays untouched; MIS elsewhere depends on it.
+  specularChainThroughput(cosReceiver: number, mode: TransportMode): Color {
+    const F = frDielectric(cosReceiver, this.ior);
+    let t = 1 - F;
+    if (mode === TransportMode.Radiance) {
+      const etap = cosReceiver > 0 ? this.ior : 1 / this.ior;
+      t /= etap * etap;
+    }
+    return new Color(t, t, t);
+  }
+
   sample(wo: Vec3, uc: number, _u2: Sample2D, mode: TransportMode): BSDFSample | null {
     if (wo.z === 0) return null;
     const R = frDielectric(wo.z, this.ior);

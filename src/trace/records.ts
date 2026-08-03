@@ -4,7 +4,8 @@
 import type { PathVertex } from '../core/integrators/vertex';
 import type { Contribution } from '../core/integrators/types';
 import type { SeedKey } from '../core/sampler/sampler';
-import type { ConnectionEvent, MutationEvent, Recorder, ReuseEvent, RREvent, ShadowRayEvent, WalkRole } from './recorder';
+import type { ConnectionEvent, ManifoldWalkEvent, MutationEvent, Recorder, ReuseEvent, RREvent, ShadowRayEvent, WalkRole } from './recorder';
+import type { ManifoldWalkOutcome } from '../core/manifold/newton';
 
 export type Tuple3 = readonly [number, number, number];
 
@@ -56,6 +57,17 @@ export interface ReuseRecord {
   from: readonly [number, number] | null;
 }
 
+export interface ManifoldWalkRecord {
+  depth: number;
+  casterName: string;
+  lightP: Tuple3;
+  seed: Tuple3;
+  iterates: readonly { p: Tuple3; cNorm: number }[];
+  outcome: ManifoldWalkOutcome;
+  solution: Tuple3 | null;
+  trials: number | null;
+}
+
 export interface PathRecord {
   key: { seq: readonly number[]; index: number };
   // Camera-walk vertices — the field every existing consumer reads; BDPT's
@@ -68,6 +80,8 @@ export interface PathRecord {
   connections: ConnectionRecord[];
   // ReSTIR (V4): reservoir lineage events for this pixel/pass.
   reuses: ReuseRecord[];
+  // SMS (V5): every manifold walk attempted for this path, iterates and all.
+  manifoldWalks: ManifoldWalkRecord[];
   contributions: ContributionRecord[];
   // MLT (V3): one record per mutation — the walks/connection above are the
   // PROPOSAL's; this is the Metropolis decision about it. Null outside MLT.
@@ -107,6 +121,7 @@ export class ArrayRecorder implements Recorder {
       shadowRays: [],
       connections: [],
       reuses: [],
+      manifoldWalks: [],
       contributions: [],
       mutation: null,
     };
@@ -152,6 +167,19 @@ export class ArrayRecorder implements Recorder {
       lightP: event.lightP ? t3(event.lightP) : null,
       source: event.source,
       from: event.from,
+    });
+  }
+
+  manifoldWalk(event: ManifoldWalkEvent): void {
+    this.current?.manifoldWalks.push({
+      depth: event.depth,
+      casterName: event.casterName,
+      lightP: t3(event.lightP),
+      seed: t3(event.seed),
+      iterates: event.iterates.map((it) => ({ p: t3(it.p), cNorm: it.cNorm })),
+      outcome: event.outcome,
+      solution: event.solution ? t3(event.solution) : null,
+      trials: event.trials,
     });
   }
 
