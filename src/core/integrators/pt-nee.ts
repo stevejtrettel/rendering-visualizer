@@ -83,7 +83,8 @@ export class NEEPathTracer implements Integrator {
 
         const pLight = selected.pmf * li.pdf;
         const pBsdf = v.bsdf.pdf(v.wo, li.wi, TransportMode.Radiance);
-        const weight = powerHeuristic(pLight, pBsdf);
+        // Delta lights admit no competing BSDF strategy: weight 1.
+        const weight = selected.light.type === 'area' ? powerHeuristic(pLight, pBsdf) : 1;
         L = L.add(
           v.beta.mul(f).mul(li.L).scale((absDot(li.wi, v.ns) / pLight) * weight),
         );

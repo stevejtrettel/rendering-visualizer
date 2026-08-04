@@ -10,6 +10,7 @@ const SCENE_NAME: SceneName = 'cornell';
 const INTEGRATORS: readonly IntegratorName[] = ['pt', 'pt-nee', 'pt-sms', 'bdpt', 'mmlt', 'restir'];
 const LABELS: Record<IntegratorName, string> = {
   pt: 'PT (BSDF sampling only)',
+  'pt-term': 'PT (single-term, pre-sampled length)',
   'pt-nee': 'PT + NEE (MIS)',
   'pt-sms': 'PT + NEE + SMS (manifold)',
   bdpt: 'BDPT',

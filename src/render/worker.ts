@@ -11,6 +11,7 @@
 import { buildScene, type Scene } from '../core/scene/scene';
 import { IndependentSampler } from '../core/sampler/independent';
 import { UnidirectionalPT } from '../core/integrators/pt';
+import { SingleTermPT } from '../core/integrators/pt-term';
 import { NEEPathTracer } from '../core/integrators/pt-nee';
 import { SMSPathTracer } from '../core/integrators/pt-sms';
 import { BDPT } from '../core/integrators/bdpt';
@@ -80,10 +81,18 @@ self.onmessage = (event: MessageEvent<MainToWorker>) => {
         msg.integrator === 'bdpt'
           ? new BDPT(depth !== undefined ? { maxBounces: depth } : {})
           : msg.integrator === 'pt-sms'
-            ? new SMSPathTracer(depth !== undefined ? { maxBounces: depth } : {})
+            ? // Interactive panes run the UNBIASED estimator config: measured
+              // (design-v5 §V5b checkpoint-2 note) 7× cheaper per pass than
+              // the biased-M8 library default AND closer to reference (−1.1%
+              // vs −1.5% zone) — a failed first walk ends the estimate. A
+              // biased-M8 pass on cornell-glass at 320² is ~140 s, which
+              // reads as a dead pane.
+              new SMSPathTracer({ estimator: 'unbiased', ...(depth !== undefined ? { maxBounces: depth } : {}) })
             : msg.integrator === 'pt-nee'
               ? new NEEPathTracer(depth !== undefined ? { maxBounces: depth } : {})
-              : new UnidirectionalPT(depth !== undefined ? { ...DEFAULT_WALK_OPTIONS, maxBounces: depth } : DEFAULT_WALK_OPTIONS);
+              : msg.integrator === 'pt-term'
+                ? new SingleTermPT(depth !== undefined ? { maxBounces: depth } : {})
+                : new UnidirectionalPT(depth !== undefined ? { ...DEFAULT_WALK_OPTIONS, maxBounces: depth } : DEFAULT_WALK_OPTIONS);
     }
     epoch = msg.epoch ?? 0;
     replyMode = msg.reply ?? 'rgba';

@@ -268,6 +268,14 @@ Built since (V5, 2026-08-02):
   cornell — cheap when no casters exist); viz-convergence,
   viz-pixel-samples, viz-image-forming gained `pt-sms` options.
 
+Built since (V5b, 2026-08-03):
+- **viz-manifold-walk** gained the 'glass ball (two-bounce)' scene — the
+  V5b chain solver live: the seed line BENDS by Snell at the first
+  crossing (refracted-continuation seeding), both candidate crossings
+  slide in step per Newton iterate, and the solved four-segment chain
+  (floor → glass → glass → ceiling light) snaps in. The demo was made
+  chain-generic in the process (an m = 1 walk is a chain of length 1).
+
 Pending, to be selected against the talk's figure list (none exists yet;
 dozens of figures expected once drafting starts).
 

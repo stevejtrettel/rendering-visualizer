@@ -13,6 +13,7 @@ import { Lambert } from '../materials/lambert';
 import { Dielectric } from '../materials/dielectric';
 import { GGXConductor, SmoothConductor } from '../materials/conductor';
 import { AreaLight } from '../lights/area';
+import { PointLight } from '../lights/point';
 import type { Light } from '../lights/light';
 import { UniformLightDistribution, type LightDistribution } from '../lights/distribution';
 import { PinholeCamera } from './camera';
@@ -53,6 +54,11 @@ export interface SceneDescription {
     fovDegrees: number;
   };
   primitives: PrimitiveDescription[];
+  // Delta emitters (V5c): geometry-free, so they live beside the
+  // primitive list. Supported by pt / pt-nee / pt-sms; BDPT/MMLT scenes
+  // must not rely on them (PointLight.sampleLe returns null — the light
+  // silently does not participate in bidirectional transport).
+  pointLights?: { p: Vec3Tuple; intensity: ColorTuple }[];
 }
 
 export interface ScenePrimitive extends Primitive {
@@ -105,7 +111,10 @@ export function buildScene(desc: SceneDescription, width: number, height: number
     return { name: p.name ?? `primitive-${i}`, shape, bxdf: buildMaterial(p.material), light };
   });
 
-  const lights = primitives.flatMap((p) => (p.light ? [p.light] : []));
+  const lights: Light[] = primitives.flatMap((p) => (p.light ? [p.light] : []));
+  for (const pl of desc.pointLights ?? []) {
+    lights.push(new PointLight(vec(pl.p), color(pl.intensity)));
+  }
 
   return {
     camera: new PinholeCamera({

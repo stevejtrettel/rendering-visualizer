@@ -196,6 +196,96 @@ describe('estimator negative control (multi-root fiber)', () => {
   });
 });
 
+// ------------------------------------------------------- V5b chains
+
+// The classic caustic scene (bdpt.test.ts's GLASS_BOX): external ceiling
+// light, glass ball, caustic on the floor — light→glass→glass→floor is
+// the m = 2 family V5b owns.
+const GLASS_BOX: SceneDescription = {
+  camera: { eye: [0, 2, 7.2], lookAt: [0, 2, 0], up: [0, 1, 0], fovDegrees: 40 },
+  primitives: [
+    { name: 'floor', shape: { kind: 'quad', q: [-2, 0, -2], e1: [0, 0, 10], e2: [4, 0, 0] }, material: WHITE },
+    { name: 'ceiling', shape: { kind: 'quad', q: [-2, 4, -2], e1: [4, 0, 0], e2: [0, 0, 10] }, material: WHITE },
+    { name: 'back', shape: { kind: 'quad', q: [-2, 0, -2], e1: [4, 0, 0], e2: [0, 4, 0] }, material: WHITE },
+    { name: 'left', shape: { kind: 'quad', q: [-2, 0, -2], e1: [0, 4, 0], e2: [0, 0, 10] }, material: { kind: 'lambert', albedo: [0.65, 0.05, 0.05] } },
+    { name: 'right', shape: { kind: 'quad', q: [2, 0, -2], e1: [0, 0, 10], e2: [0, 4, 0] }, material: { kind: 'lambert', albedo: [0.12, 0.45, 0.15] } },
+    { name: 'front', shape: { kind: 'quad', q: [-2, 0, 8], e1: [0, 4, 0], e2: [4, 0, 0] }, material: WHITE },
+    { name: 'light', shape: { kind: 'quad', q: [-0.8, 3.998, -0.8], e1: [1.6, 0, 0], e2: [0, 0, 1.6] }, material: { kind: 'lambert', albedo: [0, 0, 0] }, emission: { radiance: [14, 14, 14] } },
+    { name: 'glass', shape: { kind: 'sphere', center: [-0.3, 0.8, -0.3], radius: 0.8 }, material: { kind: 'dielectric', ior: 1.5 } },
+  ],
+};
+
+describe('V5b: two-crossing chains', () => {
+  it('m = 1 regression: chains change nothing where no m = 2 family exists', () => {
+    // The bulb's light is INSIDE the glass: every m = 2 attempt fails
+    // branch validation. In deterministic seed mode the chain draws no
+    // sampler dimensions either — contributions must be BIT-identical.
+    // (The random default draws seed dims, shifting later uniforms:
+    // statistically identical, bitwise not — covered by the convergence
+    // tests.)
+    const scene = buildScene(GLASS_BULB, 32, 32);
+    const on = new SMSPathTracer({ chains: true, chainSeedMode: 'deterministic' });
+    const off = new SMSPathTracer({ chains: false });
+    for (let i = 0; i < 24; i++) {
+      const s1 = new IndependentSampler(9);
+      const s2 = new IndependentSampler(9);
+      s1.startPixelSample(pixelSeedKey(16, 23, i));
+      s2.startPixelSample(pixelSeedKey(16, 23, i));
+      const [a] = on.sampleContributions([16, 23], s1, scene, NULL_RECORDER);
+      const [b] = off.sampleContributions([16, 23], s2, scene, NULL_RECORDER);
+      expect(a!.value.r).toBe(b!.value.r);
+      expect(a!.value.g).toBe(b!.value.g);
+      expect(a!.value.b).toBe(b!.value.b);
+    }
+  });
+
+  it('FLAGSHIP: pt-sms matches the NEE reference on the glass-box caustic', { timeout: 120_000 }, () => {
+    // The V2 flagship's pixels and reference protocol (bdpt.test.ts:203)
+    // — the same truncated integral, now solved by a fourth architecture.
+    // The UNBIASED estimator config carries the assertion (the Bernoulli
+    // correction covers every root with positive discovery probability);
+    // the biased-M default's measured ~1.5% zone darkening is recorded in
+    // design-v5 §V5b, the m = 2 analogue of the M = 1 negative control.
+    const pixels = [[16, 26], [14, 19], [8, 16], [24, 16]] as const;
+    const nee = meanRadiance(GLASS_BOX, new NEEPathTracer(), 31, pixels, 6000);
+    const sms = meanRadiance(GLASS_BOX, new SMSPathTracer({ estimator: 'unbiased' }), 32, pixels, 1200);
+    expect(Math.abs(sms - nee) / nee).toBeLessThan(0.05);
+  });
+
+  it('chain walks land in the records with two-vertex iterates', () => {
+    const scene = buildScene(GLASS_BOX, 32, 32);
+    const sms = new SMSPathTracer();
+    const s = new IndependentSampler(5);
+    const recorder = new ArrayRecorder();
+    for (let i = 0; i < 32; i++) {
+      recorder.beginPath(pixelSeedKey(16, 26, i));
+      sms.sampleContributions([16, 26], s, scene, recorder);
+      recorder.endPath();
+    }
+    const chainWalks = recorder.records
+      .flatMap((r) => r.manifoldWalks)
+      .filter((w) => w.iterates.some((it) => it.chain.length === 2));
+    expect(chainWalks.length).toBeGreaterThan(0);
+    expect(chainWalks.some((w) => w.outcome === 'converged')).toBe(true);
+  });
+
+  it('is deterministic with chains enabled', () => {
+    const scene = buildScene(GLASS_BOX, 32, 32);
+    const run = () => {
+      const sms = new SMSPathTracer();
+      const s = new IndependentSampler(21);
+      const out: number[] = [];
+      for (let i = 0; i < 16; i++) {
+        s.startPixelSample(pixelSeedKey(16, 26, i));
+        const [c] = sms.sampleContributions([16, 26], s, scene, NULL_RECORDER);
+        out.push(c!.value.r, c!.value.g, c!.value.b);
+      }
+      return out;
+    };
+    expect(run()).toEqual(run());
+  });
+});
+
 // ------------------------------------------------ determinism + records
 
 describe('determinism and records', () => {

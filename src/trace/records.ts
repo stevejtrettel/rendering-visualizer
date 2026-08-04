@@ -4,7 +4,7 @@
 import type { PathVertex } from '../core/integrators/vertex';
 import type { Contribution } from '../core/integrators/types';
 import type { SeedKey } from '../core/sampler/sampler';
-import type { ConnectionEvent, ManifoldWalkEvent, MutationEvent, Recorder, ReuseEvent, RREvent, ShadowRayEvent, WalkRole } from './recorder';
+import type { ConnectionEvent, LengthDrawEvent, ManifoldWalkEvent, MutationEvent, Recorder, ReuseEvent, RREvent, ShadowRayEvent, WalkRole } from './recorder';
 import type { ManifoldWalkOutcome } from '../core/manifold/newton';
 
 export type Tuple3 = readonly [number, number, number];
@@ -62,7 +62,7 @@ export interface ManifoldWalkRecord {
   casterName: string;
   lightP: Tuple3;
   seed: Tuple3;
-  iterates: readonly { p: Tuple3; cNorm: number }[];
+  iterates: readonly { chain: readonly Tuple3[]; cNorm: number }[];
   outcome: ManifoldWalkOutcome;
   solution: Tuple3 | null;
   trials: number | null;
@@ -76,6 +76,8 @@ export interface PathRecord {
   vertices: VertexRecord[];
   lightVertices: VertexRecord[];
   rr: RREvent[];
+  // Single-term PT (pt-term): the up-front lifetime draw. Null elsewhere.
+  lengthDraw: LengthDrawEvent | null;
   shadowRays: ShadowRayRecord[];
   connections: ConnectionRecord[];
   // ReSTIR (V4): reservoir lineage events for this pixel/pass.
@@ -118,6 +120,7 @@ export class ArrayRecorder implements Recorder {
       vertices: [],
       lightVertices: [],
       rr: [],
+      lengthDraw: null,
       shadowRays: [],
       connections: [],
       reuses: [],
@@ -135,6 +138,10 @@ export class ArrayRecorder implements Recorder {
 
   rr(event: RREvent): void {
     this.current?.rr.push(event);
+  }
+
+  lengthDraw(event: LengthDrawEvent): void {
+    if (this.current) this.current.lengthDraw = event;
   }
 
   shadowRay(event: ShadowRayEvent): void {
@@ -176,7 +183,7 @@ export class ArrayRecorder implements Recorder {
       casterName: event.casterName,
       lightP: t3(event.lightP),
       seed: t3(event.seed),
-      iterates: event.iterates.map((it) => ({ p: t3(it.p), cNorm: it.cNorm })),
+      iterates: event.iterates.map((it) => ({ chain: it.chain.map(t3), cNorm: it.cNorm })),
       outcome: event.outcome,
       solution: event.solution ? t3(event.solution) : null,
       trials: event.trials,

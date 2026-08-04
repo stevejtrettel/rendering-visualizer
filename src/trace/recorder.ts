@@ -15,6 +15,14 @@ export interface RREvent {
   role?: WalkRole;
 }
 
+// The single-term estimator's up-front lifetime draw (pt-term): the path
+// pre-committed to exactly `n` bounces, and its one contribution carries
+// weight 1/pmf. The RR counterpart events are per-bounce; this is per-path.
+export interface LengthDrawEvent {
+  n: number;
+  pmf: number;
+}
+
 // An NEE connection attempt — the occluded ones are pedagogically as
 // important as the successes, so the blocker's hit point is captured.
 export interface ShadowRayEvent {
@@ -76,10 +84,13 @@ export interface ManifoldWalkEvent {
   depth: number; // receiver vertex depth in the camera walk
   casterName: string;
   lightP: Vec3;
-  seed: Vec3; // seed point on the caster
-  iterates: readonly { p: Vec3; cNorm: number }[];
+  seed: Vec3; // seed point on the caster (first vertex for chains)
+  // Each iterate carries the WHOLE candidate chain (length 1 for the
+  // single-bounce walk, m for V5b chains) so the walk visualizer can
+  // slide every vertex in step.
+  iterates: readonly { chain: readonly Vec3[]; cNorm: number }[];
   outcome: ManifoldWalkOutcome;
-  solution: Vec3 | null; // non-null iff outcome is 'converged'
+  solution: Vec3 | null; // FIRST chain vertex iff outcome is 'converged'
   trials: number | null;
 }
 
@@ -92,6 +103,7 @@ export interface Recorder {
   // Called once per completed walk, after all backward pdfRev writes.
   walk(vertices: readonly PathVertex[], role: WalkRole): void;
   rr(event: RREvent): void;
+  lengthDraw(event: LengthDrawEvent): void;
   shadowRay(event: ShadowRayEvent): void;
   connection(event: ConnectionEvent): void;
   mutation(event: MutationEvent): void;
@@ -105,6 +117,7 @@ export class NullRecorder implements Recorder {
   beginPath(): void {}
   walk(): void {}
   rr(): void {}
+  lengthDraw(): void {}
   shadowRay(): void {}
   connection(): void {}
   mutation(): void {}

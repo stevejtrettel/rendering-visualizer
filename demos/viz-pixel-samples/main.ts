@@ -14,6 +14,7 @@ import { buildScene } from '../../src/core/scene/scene';
 import { IndependentSampler } from '../../src/core/sampler/independent';
 import { pixelSeedKey } from '../../src/core/sampler/sampler';
 import { UnidirectionalPT } from '../../src/core/integrators/pt';
+import { SingleTermPT } from '../../src/core/integrators/pt-term';
 import { NEEPathTracer } from '../../src/core/integrators/pt-nee';
 import { SMSPathTracer } from '../../src/core/integrators/pt-sms';
 import { BDPT } from '../../src/core/integrators/bdpt';
@@ -81,6 +82,7 @@ let inspectScene = buildScene(desc(), PREVIEW_SIZE, PREVIEW_SIZE);
 type PixelIntegratorName = Exclude<IntegratorName, 'mmlt' | 'restir'>;
 const integrators: Record<PixelIntegratorName, Integrator> = {
   pt: new UnidirectionalPT(),
+  'pt-term': new SingleTermPT(),
   'pt-nee': new NEEPathTracer(),
   'pt-sms': new SMSPathTracer(),
   bdpt: new BDPT(),

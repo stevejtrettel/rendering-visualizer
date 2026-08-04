@@ -27,7 +27,10 @@
       surface — candidate dots ramp red&#8594;green as the constraint residual falls —
       until the path snaps into a valid specular connection (solid chain) or the
       walk fails and evaporates. The M attempts of one biased-SMS estimate play in
-      sequence; distinct roots keep their color.
+      sequence; distinct roots keep their color. The <em>two-bounce</em> scene runs
+      the V5b chain solver: both crossings of the glass ball slide in step, and the
+      seed line bends by Snell at the first crossing (refracted-continuation
+      seeding).
     </p>
     <div class="switch" id="switch-scene"><span class="lab">scene:</span></div>
     <div class="switch" id="switch-constraint"><span class="lab">constraint:</span></div>

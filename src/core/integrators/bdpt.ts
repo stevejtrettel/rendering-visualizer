@@ -192,6 +192,7 @@ export function connectStrategy(
     // Connect a light-subpath vertex straight to the pinhole: a splat.
     const qs = lightVs[s - 1]!;
     if (!connectible(qs) || !qs.wo) return null;
+    o.lightIsDelta = lightVs[0]!.light !== null && lightVs[0]!.light!.type !== 'area';
     const sw = scene.camera.sampleWi(qs.p);
     if (!sw) return null;
     const f = qs.bsdf!.eval(qs.wo, sw.wi, TransportMode.Importance);
@@ -224,6 +225,12 @@ export function connectStrategy(
     if (!connectible(pt) || !pt.wo || !u) return null;
     const selected = scene.lightDistribution.sample(u.select);
     if (!selected) return null;
+    // Delta lights (V5c): li.pdf = 1 (discrete), pdfPos = 1 via pdfLe —
+    // the same discrete origin factor appears in every strategy of the
+    // path, so the ratio chains stay measure-consistent; lightIsDelta
+    // excludes the impossible s' = 0 emitter-hit term (the seam V2
+    // pre-wired "for completeness").
+    o.lightIsDelta = selected.light.type !== 'area';
     const li = selected.light.sampleLi({ p: pt.p, ng: pt.ng, ns: pt.ns }, u.point);
     if (!li) return null;
     const f = pt.bsdf!.eval(pt.wo, li.wi, TransportMode.Radiance);
@@ -263,6 +270,7 @@ export function connectStrategy(
   // General connection between two interior surface vertices.
   const qs = lightVs[s - 1]!;
   if (!connectible(qs) || !connectible(pt) || !qs.wo || !pt.wo) return null;
+  o.lightIsDelta = lightVs[0]!.light !== null && lightVs[0]!.light!.type !== 'area';
   const d = pt.p.sub(qs.p);
   const distSq = d.lengthSq();
   if (distSq === 0) return null;
@@ -418,9 +426,12 @@ function assertWeightSum(
 
   let sum = 0;
   let tableWeight = Number.NaN;
+  const lightIsDelta = light.type !== 'area';
   for (let tp = 1; tp <= n; tp++) {
     const sp = n - tp;
     if (sp === 1 && tp === 1) continue;
+    // A delta light cannot be HIT: the s' = 0 strategy does not exist.
+    if (sp === 0 && lightIsDelta) continue;
     if (tp < n) {
       // Junction between P[tp-1] and P[tp]: both must be connectible
       // (endpoints always are; the light endpoint is P[n-1]).
@@ -435,7 +446,7 @@ function assertWeightSum(
       const j = n - 1 - i;
       lightViews.push({ pdfFwd: pLight[j]!, pdfRev: pCam[j]!, delta: delta[j]! });
     }
-    const w = misWeight(camViews, lightViews, sp, tp, {}, options.heuristic);
+    const w = misWeight(camViews, lightViews, sp, tp, { lightIsDelta }, options.heuristic);
     sum += w;
     if (tp === t) tableWeight = w;
   }

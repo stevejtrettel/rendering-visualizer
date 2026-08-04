@@ -271,24 +271,41 @@ anchors). Stretch work is DEFERRED BUT PLANNED — see below. The
 M-sweep figure defaults to a toggle in viz-manifold-walk; promote to
 its own page at checkpoint 3 only if it reads better (the V4 idiom).
 
-## V5b design — two-bounce chains (AGREED 2026-08-03)
+## V5b design — two-bounce chains (✅ SHIPPED 2026-08-03)
+
+**Status**: shipped, all three checkpoints of
+`docs/plan-v5b-implementation.md`. `core/manifold/chain.ts`
+(block-tridiagonal LU, chain walk with refracted-continuation seeding
+and per-edge final validation, transfer-matrix G); chains in `pt-sms`
+with the double-delta partition, crossing-parity gates, and the
+`chains`/`chainSeedMode`/`chainMaxIterations` options; the FLAGSHIP
+green (pt-sms ≡ NEE on bdpt.test's glass-box caustic pixels — four
+architectures, one integral); the two-bounce scene in
+viz-manifold-walk (both crossings sliding in step, 8/8 random-seed
+convergence at the probed receiver). Measurements banked in the
+checkpoint-2 note below. Design record as agreed at markup follows.
 
 **Status**: AGREED 2026-08-03. Scope settled by Steve directly:
 refraction-only m = 2 ("double refraction is enough for now"). The
 remaining three decisions were delegated ("make your best case and
 document it") — the cases, recorded:
 
-- **(b) Deterministic straight-line seed as the default.** Through a
-  CONVEX dielectric ball the double-crossing fiber is single-root
-  almost everywhere — the V5a geometry finding (convex ⇒ single-root,
-  foldless) applied twice over. Where the fiber is single-root, random
-  seeding buys nothing and multiplies walk cost by M — exactly the
-  measured difference between glass-bulb's 26× win and caustic-ring's
-  0.2× loss. The deterministic seed is MNEE-degenerate (p ∈ {0, 1}):
-  one walk per estimate, no Bernoulli spend, and through a convex ball
-  the straight line lands near the root, where the half-vector solver
-  is quadratic and exact. The random-through variant stays as the
-  toggle for fold regions; the M-sweep lesson carries verbatim.
+- **(b) Seed default — argued deterministic, MEASURED random (amended
+  2026-08-03 at checkpoint 2).** The original case: through a convex
+  ball the double-crossing fiber should be single-root almost
+  everywhere, making the deterministic straight-line seed free of
+  estimator spend. The measurement disagreed: on the glass-box caustic
+  pixels the deterministic-only config sits ~6% DARK (−5.9% and −7.4%
+  at the two caustic probes) while random seeds with the biased-M
+  ladder sit at reference — the refracted congruence's fold bands
+  (spherical aberration, the same structure the V5a fold analysis
+  found) put multiple roots over exactly the pixels that matter, and a
+  single seed cannot cover them. Default flipped to
+  chainSeedMode: 'random' with the SAME estimator ladder and M as the
+  m = 1 strategy (one coherent default); 'deterministic' stays as the
+  cheap MNEE-style config with its bias now measured and labeled. The
+  case-then-measure sequence is itself a talk point: MNEE's known
+  darkening, reproduced from first principles in two paragraphs.
 - **(c) m = 1 and m = 2 attempted unconditionally per caster.** The
   partition's unbiasedness rests on one invariant: every family the
   emitter-hit suppression zeroes must actually be attempted by SMS.
@@ -311,11 +328,26 @@ Implementation per `docs/plan-v5b-implementation.md`.
 
 **What it buys, stated for the talk**: the FAMILIAR figure — external
 light, glass ball, caustic on the floor (light→glass→glass→floor,
-m = 2) — and with it the door-ajar SDS payoff the whole arc promised:
-the caustic-through-a-door-gap that motivated MMLT, now solved by a
-per-vertex Newton chain. The V2 flagship test (BDPT matches NEE on the
-glass-box caustic) gains a third participant, closing the loop: the
-same truncated integral, now by four architectures.
+m = 2). The V2 flagship test (BDPT matches NEE on the glass-box
+caustic) gains a fourth participant: the same truncated integral, four
+architectures.
+
+**Door-ajar correction (measured 2026-08-03; the draft over-promised
+here)**: single-receiver SMS does NOT rescue door-ajar, for two
+structural reasons. (1) SMS solves specular constraints, not
+visibility — the solved chain's exit-vertex→light edge must thread the
+slit, and almost every root dies in the final occlusion check (probe:
+chain contributions ≈ zero at the caustic pixels, at full attempt
+cost). (2) The scene's difficulty is the DIFFUSE slit bottleneck —
+BDPT/MMLT territory by design. The honest taxonomy slide: glass-box
+and bulb caustics are SMS's scenes; door-ajar stays bidirectional —
+no proposal dominates, which is §12.7's mixture argument made
+concrete. The principled fix is RECORDED, not built: Speierer 2018's
+caustic connections (sms-notes links) — manifold chains between
+camera-subpath diffuse vertices and LIGHT-subpath vertices, so the
+light walk carries visibility through the slit and the manifold solves
+the glass. That is the SMS-in-BDPT project design decision 5 scoped
+out, now with a motivating scene and a measured gap.
 
 Decisions (proposed):
 
@@ -371,6 +403,34 @@ Open questions for markup: (a) scope refraction-only — agree?
 (b) deterministic-seed default — agree? (c) attempt m = 1 and m = 2
 unconditionally per caster, measure the cost — agree? (d) numbering:
 this stays V5b inside design-v5 rather than a design-v6 — agree?
+
+**V5b checkpoint-2 measurement note (2026-08-03)**: the suppressed
+double-refraction family is 12.4% of the glass-box caustic-zone energy
+(measured by the M = 0 suppress-only config against chains-off, which
+sits at −0.34% ≡ NEE — partition sanity). Getting the resupply to match
+took three measured solver fixes: (1) DROP the per-step transmissive
+guard (Cycles has one, Mitsuba doesn't — it froze walks whose Newton
+path legitimately passes side-flipped states: 2/719 → 29/720 integrator
+convergence); (2) REFRACTED-CONTINUATION seeding — bend by Snell at
+each crossing instead of marching straight, so the seed satisfies the
+constraint exactly at every vertex but the last (zone success 4.4% →
+14.7%, biased-M8 zone deficit −4.0% → −1.5%); (3) shape-only
+re-projection with explicit final per-edge visibility (which also
+exposed 11 formerly-"converged" occluded far-side impostors). The
+UNBIASED Bernoulli config lands at −1.1% (≈ the maxTrials-truncation
+floor) and is SEVEN TIMES cheaper than biased-M8 (a failed first walk
+ends the estimate) — it carries the flagship test, which passes: pt-sms
+matches the NEE reference on bdpt.test's own glass-box caustic pixels.
+CROSSING-PARITY gates (closed casters: odd chains need opposite-side
+endpoints, even chains same-side — exact geometry) cut cost a further
+2.6×. Equal-time verdict, honest: broad-light glass box LOSES badly
+(BSDF luck is cheap under a 1.6² emitter — the caustic-ring lesson
+again); small-hard-light glass box gets a 32× per-sample VARIANCE win
+on the caustic but ~150× per-sample cost → 0.2–0.3× at equal time on
+this TS renderer. The talk figures are equal-samples (the caustic
+transformation is dramatic); the equal-time table stays on the slide —
+the V4 discipline. Recorded cost options, not built: allocation-free
+walk internals, guided seeding, per-caster trial budgets.
 
 ## Planned follow-ups (V5b — deferred, decided from V5's measurements)
 

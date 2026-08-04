@@ -27,6 +27,38 @@ const CORNELL_GLASS: SceneDescription = {
   ],
 };
 
+// The SMS refraction showcase (V5b): cornell-glass with the ceiling light
+// shrunk to 0.3² at ×28 radiance (equal power). Under the broad 1.6²
+// light, BSDF luck finds the caustic cheaply and SMS's discovery
+// correction only adds heavy-tailed noise (measured: relVar 5.7 unbiased
+// vs 2.1 NEE); under this small hard light the solver wins 32× per
+// sample. The pair IS the regime figure.
+// The ball FLOATS and the small light sits behind it, so the refracted
+// focus lands on VISIBLE floor in front (a ball resting on the floor
+// hides its own caustic underneath itself — found out in the panes).
+const CORNELL_CAUSTIC: SceneDescription = {
+  camera: CORNELL.camera,
+  primitives: [
+    ...CORNELL_GLASS.primitives.filter((p) => p.name !== 'light' && p.name !== 'glassBall'),
+    { name: 'light', shape: { kind: 'quad', q: [-1.0, 3.998, -1.25], e1: [0.3, 0, 0], e2: [0, 0, 0.3] }, material: { kind: 'lambert', albedo: [0, 0, 0] }, emission: { radiance: [400, 400, 400] } },
+    { name: 'glassBall', shape: { kind: 'sphere', center: [-0.2, 1.0, 0.5], radius: 0.6 }, material: { kind: 'dielectric', ior: 1.5 } },
+  ],
+};
+
+// The CATEGORICAL scene (V5c, 2026-08-03): cornell-caustic with a POINT
+// light. S(D)S transport from a delta emitter has measure-zero
+// probability under every local strategy — PT can never hit the light,
+// NEE's shadow rays refract away at the glass, BDPT dies on the delta
+// chain (and its sampleLe returns null here anyway). The caustic EXISTS
+// only in the pt-sms pane; everywhere else that floor patch is black.
+// pt / pt-nee / pt-sms only — bidirectional integrators must not rely on
+// delta lights (the V2 lock stands).
+const CORNELL_DELTA: SceneDescription = {
+  camera: CORNELL.camera,
+  primitives: CORNELL_CAUSTIC.primitives.filter((p) => p.name !== 'light'),
+  pointLights: [{ p: [-0.85, 3.9, -1.1], intensity: [36, 36, 36] }],
+};
+
 // The BDPT showcase: an uplight — the emitter faces the CEILING, recessed
 // inside a shaded fixture, so the room is lit entirely by the ceiling
 // bounce. Below the fixture rim the emitting side is invisible: depth-1 NEE
@@ -193,6 +225,8 @@ const CAUSTIC_RING: SceneDescription = {
 export const SCENES = {
   cornell: CORNELL,
   'cornell-glass': CORNELL_GLASS,
+  'cornell-caustic': CORNELL_CAUSTIC,
+  'cornell-delta': CORNELL_DELTA,
   'caustic-ring': CAUSTIC_RING,
   'cornell-lamp': CORNELL_LAMP,
   chandelier: CHANDELIER,

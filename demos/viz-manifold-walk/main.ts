@@ -1,11 +1,11 @@
 // SHOWS: the manifold walk itself — seed, Newton iterates sliding on the
 // caster, and the solved specular connection — for one fixed receiver/light
-// pair, played as the M attempts of one biased-SMS estimate. Switches: the
-// scene (reflective mirror ball / refractive glass bulb), the constraint
-// formulation (the measured success-rate story: anglediff wins refraction
-// 82% vs 27%, halfvector edges ahead on pure reflection), the seed mode
-// (random vs MNEE's deterministic straight line — which can only ever find
-// ONE root), and the trial budget M.
+// pair, played as the M attempts of one biased-SMS estimate. Scenes: the
+// V5a single-bounce trio (mirror ball / glass bulb / mirror dome) and the
+// V5b TWO-BOUNCE glass ball (cornell-glass: the classic caustic, both
+// candidate crossings sliding in step). Switches: constraint formulation
+// (the measured success-rate story), seed mode (random vs the MNEE-style
+// deterministic seed — which can only ever find ONE root), and M.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Line2 } from 'three/addons/lines/Line2.js';
@@ -24,8 +24,10 @@ import {
   manifoldWalk,
   sameSolution,
   DEFAULT_WALK_OPTIONS,
-  type ManifoldWalkResult,
+  type ManifoldWalkOptions,
+  type ManifoldWalkOutcome,
 } from '../../src/core/manifold/newton';
+import { chainSeed, chainWalk, type ChainLink } from '../../src/core/manifold/chain';
 import type { ConstraintType } from '../../src/core/manifold/constraints';
 import { Timeline, type TimelineElement } from '../../src/viz/timeline';
 import { attachControls } from '../../src/viz/controls';
@@ -36,12 +38,13 @@ import { sceneToThree } from '../../src/viz/three-scene';
 const VIEW_W = 900;
 const VIEW_H = 620;
 const SEED = 0;
-const SEED_SECONDS = 0.5; // dotted seed line draw time
+const SEED_SECONDS = 0.5; // dotted seed chain draw time
 const ITER_SECONDS = 0.35; // per Newton iterate
 const RESOLVE_SECONDS = 0.9; // solid-chain flash / evaporate time
 const LOOP_HOLD = 1.5;
 const SOLVED_OPACITY = 0.9;
 const ROOT_HUES = [0.33, 0.55, 0.78, 0.12, 0.9]; // one hue per distinct root
+const CHAIN_MAX_ITERATIONS = 32; // chains ramp beta from 0.1 (see chain.ts)
 
 // The refractive companion scene (the glass bulb of the V5 tests): an
 // emitter inside a solid glass sphere — NEE is always occluded here.
@@ -56,15 +59,6 @@ const GLASS_BULB: SceneDescription = {
   ],
 };
 
-interface SceneConfig {
-  description: SceneDescription;
-  casterName: string;
-  eta: number;
-  receiver: Vec3; // fixed shading point a on the floor
-  lightP: Vec3; // fixed light point b
-  view: { eye: readonly [number, number, number]; target: readonly [number, number, number] };
-}
-
 // The mirror dome of viz-caustic-fold: concave, so the fiber has MULTIPLE
 // roots — the configuration where MNEE's single deterministic seed
 // provably under-counts and random seeds pay off.
@@ -77,11 +71,22 @@ const MIRROR_DOME: SceneDescription = {
   ],
 };
 
-const SCENE_CONFIGS: Record<'mirror' | 'bulb' | 'dome', SceneConfig> = {
+interface SceneConfig {
+  description: SceneDescription;
+  casterName: string;
+  eta: number;
+  bounces: 1 | 2; // 2 = the V5b chain through the same caster twice
+  receiver: Vec3; // fixed shading point a on the floor
+  lightP: Vec3; // fixed light point b
+  view: { eye: readonly [number, number, number]; target: readonly [number, number, number] };
+}
+
+const SCENE_CONFIGS: Record<'mirror' | 'bulb' | 'dome' | 'glass2', SceneConfig> = {
   mirror: {
     description: SCENES['caustic-ring'],
     casterName: 'mirrorBall',
     eta: 1,
+    bounces: 1,
     receiver: new Vec3(-0.8, 0.001, 0.55), // in the ball's connectible zone (left, toward the light)
     lightP: new Vec3(-1.999, 2.6, 0), // wall-light center
     view: vizViewFor('caustic-ring'),
@@ -90,6 +95,7 @@ const SCENE_CONFIGS: Record<'mirror' | 'bulb' | 'dome', SceneConfig> = {
     description: GLASS_BULB,
     casterName: 'glassShell',
     eta: 1.5,
+    bounces: 1,
     receiver: new Vec3(0.55, 0.001, 0.45),
     lightP: new Vec3(0, 1.02, 0), // bulb center
     view: { eye: [3.6, 2.6, 5.2], target: [0, 0.8, 0] },
@@ -98,17 +104,27 @@ const SCENE_CONFIGS: Record<'mirror' | 'bulb' | 'dome', SceneConfig> = {
     description: MIRROR_DOME,
     casterName: 'dome',
     eta: 1,
+    bounces: 1,
     receiver: new Vec3(0.2, 0.001, 0), // inside the two-branch band past the fold
     lightP: new Vec3(1.2, 2.0, 0), // lamp center
     view: { eye: [1.5, 2.1, 1.9], target: [-0.4, 0.2, 0] }, // inside the dome
+  },
+  glass2: {
+    description: SCENES['cornell-glass'],
+    casterName: 'glassBall',
+    eta: 1.5,
+    bounces: 2,
+    receiver: new Vec3(-1.2, 0.001, -1.2), // floor caustic left-behind the ball (probed: 8/8 random seeds converge)
+    lightP: new Vec3(0, 3.998, 0), // ceiling-light center
+    view: vizViewFor('cornell-glass'),
   },
 };
 
 type SceneMode = keyof typeof SCENE_CONFIGS;
 type SeedMode = 'random' | 'mnee';
 
-let sceneMode: SceneMode = 'mirror';
-let constraint: ConstraintType = 'anglediff';
+let sceneMode: SceneMode = 'glass2';
+let constraint: ConstraintType = 'halfvector';
 let seedMode: SeedMode = 'random';
 let M = 8;
 
@@ -139,10 +155,12 @@ const resolution = new THREE.Vector2(VIEW_W * devicePixelRatio, VIEW_H * deviceP
 const infoEl = document.getElementById('info')!;
 const timeline = new Timeline();
 
-// --- Walk data ---
+// --- Walk data (chain-generic: an m = 1 walk is a chain of length 1) ---
 interface WalkVisual {
-  seedP: Vec3 | null; // null: seed ray missed the caster entirely
-  result: ManifoldWalkResult | null;
+  seedChain: Vec3[] | null; // null: seed ray missed the caster entirely
+  iterates: { chain: Vec3[]; cNorm: number }[];
+  outcome: ManifoldWalkOutcome | 'missed-caster';
+  solution: Vec3[] | null;
   rootIndex: number; // distinct-root index for coloring, -1 if failed
 }
 
@@ -155,33 +173,65 @@ function computeWalks(): { walks: WalkVisual[]; scene: Scene; roots: Vec3[] } {
   const walks: WalkVisual[] = [];
   const roots: Vec3[] = [];
   const attempts = seedMode === 'mnee' ? 1 : M;
+  const walkOptions: ManifoldWalkOptions = {
+    ...DEFAULT_WALK_OPTIONS,
+    constraint,
+    ...(cfg.bounces === 2 ? { maxIterations: CHAIN_MAX_ITERATIONS } : {}),
+  };
+
   for (let m = 0; m < attempts; m++) {
     let target: Vec3;
     if (seedMode === 'mnee') {
-      target = cfg.eta !== 1 ? cfg.lightP : sphere.center;
+      target = cfg.eta !== 1 || cfg.bounces === 2 ? cfg.lightP : sphere.center;
     } else {
       target = sphere.center.add(uniformSampleSphere([rng.nextFloat(), rng.nextFloat()]).scale(sphere.radius));
     }
-    const dir = target.sub(cfg.receiver).normalize();
-    const seedHit = scene.aggregate.intersect(new Ray(cfg.receiver.add(dir.scale(RAY_EPSILON)), dir));
-    if (!seedHit || seedHit.primitive !== caster) {
-      walks.push({ seedP: null, result: null, rootIndex: -1 });
-      continue;
-    }
-    const result = manifoldWalk(cfg.receiver, seedHit, cfg.eta, cfg.lightP, caster, scene.aggregate, {
-      ...DEFAULT_WALK_OPTIONS,
-      constraint,
-    });
-    let rootIndex = -1;
-    if (result.outcome === 'converged') {
-      const d = result.vertex!.p.sub(cfg.receiver).normalize();
-      rootIndex = roots.findIndex((r) => sameSolution(r.sub(cfg.receiver).normalize(), d));
-      if (rootIndex < 0) {
-        rootIndex = roots.length;
-        roots.push(result.vertex!.p);
+
+    let visual: WalkVisual;
+    if (cfg.bounces === 2) {
+      const links: ChainLink[] = [
+        { primitive: caster, eta: cfg.eta },
+        { primitive: caster, eta: cfg.eta },
+      ];
+      const seeds = chainSeed(cfg.receiver, target, links, scene.aggregate);
+      if (!seeds) {
+        visual = { seedChain: null, iterates: [], outcome: 'missed-caster', solution: null, rootIndex: -1 };
+      } else {
+        const result = chainWalk(cfg.receiver, seeds, links, cfg.lightP, scene.aggregate, walkOptions);
+        visual = {
+          seedChain: seeds.map((h) => h.p),
+          iterates: result.iterates,
+          outcome: result.outcome,
+          solution: result.vertices ? result.vertices.map((v) => v.p) : null,
+          rootIndex: -1,
+        };
+      }
+    } else {
+      const dir = target.sub(cfg.receiver).normalize();
+      const seedHit = scene.aggregate.intersect(new Ray(cfg.receiver.add(dir.scale(RAY_EPSILON)), dir));
+      if (!seedHit || seedHit.primitive !== caster) {
+        visual = { seedChain: null, iterates: [], outcome: 'missed-caster', solution: null, rootIndex: -1 };
+      } else {
+        const result = manifoldWalk(cfg.receiver, seedHit, cfg.eta, cfg.lightP, caster, scene.aggregate, walkOptions);
+        visual = {
+          seedChain: [seedHit.p],
+          iterates: result.iterates.map((it) => ({ chain: [it.p], cNorm: it.cNorm })),
+          outcome: result.outcome,
+          solution: result.vertex ? [result.vertex.p] : null,
+          rootIndex: -1,
+        };
       }
     }
-    walks.push({ seedP: seedHit.p, result, rootIndex });
+
+    if (visual.solution) {
+      const d = visual.solution[0]!.sub(cfg.receiver).normalize();
+      visual.rootIndex = roots.findIndex((r) => sameSolution(r.sub(cfg.receiver).normalize(), d));
+      if (visual.rootIndex < 0) {
+        visual.rootIndex = roots.length;
+        roots.push(visual.solution[0]!);
+      }
+    }
+    walks.push(visual);
   }
   return { walks, scene, roots };
 }
@@ -208,22 +258,24 @@ function marker(p: Vec3, color: number, r = 0.05): THREE.Mesh {
 
 // Residual → color ramp: red (large ‖C‖) → green (at the threshold).
 function residualColor(cNorm: number): THREE.Color {
-  const hi = Math.log10(2); // residuals start O(1)
+  const hi = Math.log10(2);
   const lo = Math.log10(DEFAULT_WALK_OPTIONS.solverThreshold);
   const x = Math.min(1, Math.max(0, (hi - Math.log10(Math.max(cNorm, 1e-12))) / (hi - lo)));
   return new THREE.Color().setHSL(0.33 * x, 0.9, 0.55);
 }
 
-// One walk attempt on the timeline: dotted seed line, iterate dots with a
-// sliding "current" dot, then a solid chain (converged) or evaporation.
+let currentSphereCenter = new THREE.Vector3();
+
+// One walk attempt on the timeline: dotted seed chain, iterate dots with
+// one sliding "current" dot PER CHAIN VERTEX (the two-bounce mode slides
+// both crossings in step), then a solid chain or evaporation.
 class WalkElement implements TimelineElement {
   private readonly group = new THREE.Group();
   private readonly seedLine: THREE.Line | null = null;
-  private readonly iterateDots: THREE.Mesh[] = [];
-  private readonly slider: THREE.Mesh | null = null;
-  private readonly normalArrow: THREE.ArrowHelper | null = null;
-  private readonly chainIn: Line2 | null = null;
-  private readonly chainOut: Line2 | null = null;
+  private readonly iterateDots: THREE.Mesh[][] = []; // [iterate][vertex]
+  private readonly sliders: THREE.Mesh[] = [];
+  private readonly normalArrows: THREE.ArrowHelper[] = [];
+  private readonly chainLine: Line2 | null = null;
   readonly duration: number;
 
   constructor(
@@ -234,49 +286,52 @@ class WalkElement implements TimelineElement {
     parent: THREE.Object3D,
   ) {
     parent.add(this.group);
-    const iterates = walk.result?.iterates ?? [];
-    this.duration = SEED_SECONDS + iterates.length * ITER_SECONDS + RESOLVE_SECONDS;
-    if (!walk.seedP) return;
+    this.duration = SEED_SECONDS + this.walk.iterates.length * ITER_SECONDS + RESOLVE_SECONDS;
+    if (!walk.seedChain) return;
 
-    const seedGeom = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(...t3(receiver)),
-      new THREE.Vector3(...t3(walk.seedP)),
-    ]);
+    const seedPts = [receiver, ...walk.seedChain].map((p) => new THREE.Vector3(...t3(p)));
+    const seedGeom = new THREE.BufferGeometry().setFromPoints(seedPts);
     const seedMat = new THREE.LineDashedMaterial({ color: 0x9a9a9a, dashSize: 0.08, gapSize: 0.06, transparent: true, opacity: 0 });
     this.seedLine = new THREE.Line(seedGeom, seedMat);
     this.seedLine.computeLineDistances();
     this.group.add(this.seedLine);
 
-    for (const it of iterates) {
-      const dot = marker(new Vec3(it.p.x, it.p.y, it.p.z), 0xffffff, 0.022);
-      (dot.material as THREE.MeshBasicMaterial).color = residualColor(it.cNorm);
-      (dot.material as THREE.MeshBasicMaterial).opacity = 0;
-      this.group.add(dot);
-      this.iterateDots.push(dot);
+    const nVerts = walk.seedChain.length;
+    for (const it of walk.iterates) {
+      const row: THREE.Mesh[] = [];
+      for (const p of it.chain) {
+        const dot = marker(p, 0xffffff, 0.022);
+        (dot.material as THREE.MeshBasicMaterial).color = residualColor(it.cNorm);
+        (dot.material as THREE.MeshBasicMaterial).opacity = 0;
+        this.group.add(dot);
+        row.push(dot);
+      }
+      this.iterateDots.push(row);
     }
-    if (iterates.length > 0) {
-      this.slider = marker(new Vec3(0, 0, 0), 0xffffff, 0.034);
-      this.group.add(this.slider);
-      this.normalArrow = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(), 0.45, 0xdddddd, 0.1, 0.05);
-      this.group.add(this.normalArrow);
+    if (walk.iterates.length > 0) {
+      for (let v = 0; v < nVerts; v++) {
+        const slider = marker(new Vec3(0, 0, 0), 0xffffff, 0.034);
+        this.group.add(slider);
+        this.sliders.push(slider);
+        const arrow = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(), 0.45, 0xdddddd, 0.1, 0.05);
+        this.group.add(arrow);
+        this.normalArrows.push(arrow);
+      }
     }
-    if (this.walk.result?.outcome === 'converged') {
-      const root = this.walk.result.vertex!.p;
-      const hue = ROOT_HUES[this.walk.rootIndex % ROOT_HUES.length]!;
+    if (walk.solution) {
+      const hue = ROOT_HUES[walk.rootIndex % ROOT_HUES.length]!;
       const color = new THREE.Color().setHSL(hue, 0.85, 0.6).getHex();
-      this.chainIn = fatLine([t3(receiver), t3(root)], color, 4);
-      this.chainOut = fatLine([t3(root), t3(lightP)], color, 4);
-      this.group.add(this.chainIn, this.chainOut);
+      this.chainLine = fatLine([t3(receiver), ...walk.solution.map(t3), t3(lightP)], color, 4);
+      this.group.add(this.chainLine);
     }
   }
 
   drawAt(t: number): void {
     const local = t - this.start;
-    const iterates = this.walk.result?.iterates ?? [];
+    const iterates = this.walk.iterates;
     const iterEnd = SEED_SECONDS + iterates.length * ITER_SECONDS;
-    const converged = this.walk.result?.outcome === 'converged';
+    const converged = this.walk.solution !== null;
 
-    // Seed line: fades in during its phase, fades once resolved.
     if (this.seedLine) {
       const m = this.seedLine.material as THREE.LineDashedMaterial;
       if (local < 0) m.opacity = 0;
@@ -284,40 +339,38 @@ class WalkElement implements TimelineElement {
       else m.opacity = Math.max(0, 0.55 * (1 - (local - iterEnd) / RESOLVE_SECONDS));
     }
 
-    // Iterate dots appear one by one; on failure everything evaporates.
     const failFade = converged ? 1 : Math.max(0, 1 - Math.max(0, local - iterEnd) / RESOLVE_SECONDS);
-    for (const [i, dot] of this.iterateDots.entries()) {
+    for (const [i, row] of this.iterateDots.entries()) {
       const at = SEED_SECONDS + i * ITER_SECONDS;
-      const m = dot.material as THREE.MeshBasicMaterial;
-      m.opacity = (local >= at ? 0.85 : 0) * failFade;
+      for (const dot of row) {
+        (dot.material as THREE.MeshBasicMaterial).opacity = (local >= at ? 0.85 : 0) * failFade;
+      }
     }
-    if (this.slider && this.normalArrow) {
+
+    if (this.sliders.length > 0 && iterates.length > 0) {
       const active = local >= SEED_SECONDS && local < iterEnd + (converged ? 0 : RESOLVE_SECONDS);
-      const sm = this.slider.material as THREE.MeshBasicMaterial;
-      sm.opacity = active ? 0.95 * failFade : 0;
-      this.normalArrow.visible = active && failFade > 0.05;
-      if (active) {
-        const k = Math.min(iterates.length - 1, Math.floor((local - SEED_SECONDS) / ITER_SECONDS));
-        const frac = Math.min(1, (local - SEED_SECONDS) / ITER_SECONDS - k);
-        const a = iterates[k]!.p;
-        const b = iterates[Math.min(iterates.length - 1, k + 1)]!.p;
-        this.slider.position.set(a.x + (b.x - a.x) * frac, a.y + (b.y - a.y) * frac, a.z + (b.z - a.z) * frac);
-        sm.color = residualColor(iterates[k]!.cNorm);
-        this.normalArrow.position.copy(this.slider.position);
-        if (this.walk.result?.vertex || iterates.length > 0) {
-          // Surface normal at the sliding dot: radial for the sphere caster.
-          const n = this.slider.position.clone().sub(sphereCenterOf()).normalize();
-          this.normalArrow.setDirection(n);
+      const k = Math.min(iterates.length - 1, Math.max(0, Math.floor((local - SEED_SECONDS) / ITER_SECONDS)));
+      const frac = Math.min(1, Math.max(0, (local - SEED_SECONDS) / ITER_SECONDS - k));
+      for (const [v, slider] of this.sliders.entries()) {
+        const sm = slider.material as THREE.MeshBasicMaterial;
+        sm.opacity = active ? 0.95 * failFade : 0;
+        const arrow = this.normalArrows[v]!;
+        arrow.visible = active && failFade > 0.05;
+        if (active) {
+          const a = iterates[k]!.chain[v]!;
+          const b = iterates[Math.min(iterates.length - 1, k + 1)]!.chain[v] ?? a;
+          slider.position.set(a.x + (b.x - a.x) * frac, a.y + (b.y - a.y) * frac, a.z + (b.z - a.z) * frac);
+          sm.color = residualColor(iterates[k]!.cNorm);
+          arrow.position.copy(slider.position);
+          arrow.setDirection(slider.position.clone().sub(currentSphereCenter).normalize());
         }
       }
     }
 
-    // The solved chain flashes in and settles.
-    if (this.chainIn && this.chainOut) {
+    if (this.chainLine) {
       const dt = local - iterEnd;
       const o = dt <= 0 ? 0 : Math.min(1, dt / 0.25) * (SOLVED_OPACITY + 0.4 * Math.exp(-3 * dt));
-      (this.chainIn.material as LineMaterial).opacity = o;
-      (this.chainOut.material as LineMaterial).opacity = o;
+      (this.chainLine.material as LineMaterial).opacity = o;
     }
   }
 
@@ -330,9 +383,6 @@ class WalkElement implements TimelineElement {
     });
   }
 }
-
-let currentSphereCenter = new THREE.Vector3();
-const sphereCenterOf = () => currentSphereCenter;
 
 // --- Build / rebuild ---
 function build(): void {
@@ -359,11 +409,10 @@ function build(): void {
   let iterTotal = 0;
   let converged = 0;
   for (const w of walks) {
-    const key = w.result?.outcome ?? 'missed-caster';
-    outcomes[key] = (outcomes[key] ?? 0) + 1;
-    if (w.result?.outcome === 'converged') {
+    outcomes[w.outcome] = (outcomes[w.outcome] ?? 0) + 1;
+    if (w.solution) {
       converged++;
-      iterTotal += w.result.iterates.length;
+      iterTotal += w.iterates.length;
     }
   }
   const parts = Object.entries(outcomes)
@@ -371,6 +420,7 @@ function build(): void {
     .map(([k, v]) => `${v} ${k}`)
     .join(' · ');
   infoEl.textContent =
+    `${cfg.bounces === 2 ? 'two-bounce chain, ' : ''}` +
     `${seedMode === 'mnee' ? 'MNEE seed' : `M = ${M} random seeds`}, ${constraint}: ` +
     `${parts} — ${roots.length} distinct root${roots.length === 1 ? '' : 's'}` +
     (converged ? `, mean ${(iterTotal / converged).toFixed(1)} iterations` : '');
@@ -410,13 +460,14 @@ function makeSwitch<T extends string>(
 }
 
 makeSwitch('switch-scene', [
+  { id: 'glass2', label: 'glass ball (two-bounce)' },
   { id: 'mirror', label: 'mirror ball (reflection)' },
   { id: 'bulb', label: 'glass bulb (refraction)' },
   { id: 'dome', label: 'mirror dome (multi-root)' },
 ], () => sceneMode, (v) => { sceneMode = v; });
 makeSwitch('switch-constraint', [
-  { id: 'anglediff', label: 'angle difference' },
   { id: 'halfvector', label: 'half-vector' },
+  { id: 'anglediff', label: 'angle difference' },
 ], () => constraint, (v) => { constraint = v; });
 makeSwitch('switch-seed', [
   { id: 'random', label: 'random' },

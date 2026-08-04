@@ -104,11 +104,13 @@ them for a larger set of single-purpose ones, built in acts.)
   `src/viz/path-swarm.ts`, which draws a whole population as one buffered
   `LineSegments`; the visible window is still a pure function of time, so
   scrub and export work.
-- **Specular manifolds (V5)**: `viz-manifold-walk` — the Newton walk that
-  solves a specular connection, played as the M attempts of one SMS
+- **Specular manifolds (V5/V5b)**: `viz-manifold-walk` — the Newton walk
+  that solves a specular connection, played as the M attempts of one SMS
   estimate (seed dotted, iterates color-ramped by residual, solved chains
   solid, failures evaporating; switches for scene, constraint
-  formulation, seed mode, and M). `viz-caustic-fold` — a receiver point
+  formulation, seed mode, and M). The two-bounce scene runs the V5b
+  chain solver on cornell-glass: the seed bends by Snell at the first
+  crossing and both crossings of the glass ball slide in step. `viz-caustic-fold` — a receiver point
   sweeping through the coffee-cup caustic inside a mirror dome (concave —
   measured: the convex ball is single-root with no fold anywhere) while
   the fiber's solution branches and their projection determinant
