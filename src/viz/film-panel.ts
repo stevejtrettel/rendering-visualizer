@@ -29,13 +29,60 @@ export interface FilmPanelOptions {
   opacity?: number;
 }
 
+/**
+ * A texture that a developed film blits into, with the conventions every
+ * render pane needs. Shared with WipePanel, which needs two of them.
+ *
+ * `upload` takes what Film.develop() / the worker protocol / the pool all
+ * produce: sRGB RGBA8 with row 0 at the TOP (raster order), flipped here
+ * because texture row 0 is the bottom of a quad.
+ */
+export interface FilmTexture {
+  texture: THREE.DataTexture;
+  upload(rgba: Uint8ClampedArray): void;
+}
+
+export function createFilmTexture(width: number, height: number): FilmTexture {
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  const texture = new THREE.DataTexture(pixels, width, height, THREE.RGBAFormat);
+  // The film arrives already sRGB-encoded from Film.develop(), so the
+  // texture must NOT be colour-converted a second time on sampling.
+  texture.colorSpace = THREE.NoColorSpace;
+  // Crisp pixels: at low sample counts the noise IS the subject, and
+  // bilinear smoothing quietly denoises the very thing being shown.
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+
+  const stride = width * 4;
+  return {
+    texture,
+    upload(rgba) {
+      if (rgba.length !== stride * height) {
+        throw new Error(
+          `film texture: expected ${stride * height} bytes for ${width}x${height}, got ${rgba.length}`,
+        );
+      }
+      for (let y = 0; y < height; y++) {
+        const src = y * stride;
+        pixels.set(rgba.subarray(src, src + stride), (height - 1 - y) * stride);
+      }
+      texture.needsUpdate = true;
+    },
+  };
+}
+
 export class FilmPanel {
   readonly group = new THREE.Group();
-  private readonly texture: THREE.DataTexture;
-  private readonly pixels: Uint8ClampedArray;
+  readonly width: number;
+  readonly height: number;
+  private readonly film: FilmTexture;
   private readonly mesh: THREE.Mesh;
 
   constructor(private readonly options: FilmPanelOptions) {
+    this.width = options.width;
+    this.height = options.height;
     const {
       width,
       height,
@@ -46,23 +93,13 @@ export class FilmPanel {
       opacity = 1,
     } = options;
 
-    this.pixels = new Uint8ClampedArray(width * height * 4);
-    this.texture = new THREE.DataTexture(this.pixels, width, height, THREE.RGBAFormat);
-    // The film arrives already sRGB-encoded from Film.develop(), so the
-    // texture must NOT be colour-converted a second time on sampling.
-    this.texture.colorSpace = THREE.NoColorSpace;
-    // Crisp pixels: at low sample counts the noise IS the subject, and
-    // bilinear smoothing quietly denoises the very thing being shown.
-    this.texture.magFilter = THREE.NearestFilter;
-    this.texture.minFilter = THREE.LinearFilter;
-    this.texture.generateMipmaps = false;
-    this.texture.needsUpdate = true;
+    this.film = createFilmTexture(width, height);
 
     const drawnWidth = (drawnHeight * width) / height;
     this.mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(drawnWidth, drawnHeight),
       new THREE.MeshBasicMaterial({
-        map: this.texture,
+        map: this.film.texture,
         transparent: opacity < 1,
         opacity,
         toneMapped: false, // the film is already developed; ACES would re-grade it
@@ -90,31 +127,14 @@ export class FilmPanel {
     return ASPECT;
   }
 
-  /**
-   * Blit a developed frame. Accepts what Film.develop() / the worker
-   * protocol / PoolUpdate.frame() all produce: sRGB RGBA8, row 0 at the TOP
-   * (raster order), which is flipped here because texture row 0 is the
-   * bottom of the quad.
-   */
+  /** Blit a developed frame (sRGB RGBA8, raster order). */
   update(rgba: Uint8ClampedArray): void {
-    const { width, height } = this.options;
-    const stride = width * 4;
-    if (rgba.length !== stride * height) {
-      throw new Error(
-        `FilmPanel.update: expected ${stride * height} bytes for ${width}x${height}, got ${rgba.length}`,
-      );
-    }
-    for (let y = 0; y < height; y++) {
-      const src = y * stride;
-      const dst = (height - 1 - y) * stride;
-      this.pixels.set(rgba.subarray(src, src + stride), dst);
-    }
-    this.texture.needsUpdate = true;
+    this.film.upload(rgba);
   }
 
   dispose(): void {
     this.group.removeFromParent();
-    this.texture.dispose();
+    this.film.texture.dispose();
     this.group.traverse((o) => {
       if (o instanceof THREE.Mesh || o instanceof THREE.Line) {
         o.geometry.dispose();

@@ -66,6 +66,18 @@ export function erfInv(x: number): number {
   return p * c;
 }
 
+// Uniform over the hemisphere around +z — every solid angle equally
+// likely, which is the deliberately naive alternative to importance
+// sampling a BSDF (see materials/uniform-sampled.ts).
+export function uniformSampleHemisphere(u: Sample2D): Vec3 {
+  const z = u[0];
+  const r = Math.sqrt(Math.max(0, 1 - z * z));
+  const phi = 2 * Math.PI * u[1];
+  return new Vec3(r * Math.cos(phi), r * Math.sin(phi), z);
+}
+
+export const UNIFORM_HEMISPHERE_PDF = 1 / (2 * Math.PI);
+
 export function uniformSampleSphere(u: Sample2D): Vec3 {
   const z = 1 - 2 * u[0];
   const r = Math.sqrt(Math.max(0, 1 - z * z));

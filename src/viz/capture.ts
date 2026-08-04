@@ -38,6 +38,9 @@ function nextFrame(): Promise<void> {
 
 /** Save a single PNG at full export resolution into out/stills/. */
 export async function saveStill(stage: Stage, name: string): Promise<string> {
+  // Whatever the demo said it was still preparing (see Stage.onReady) —
+  // capturing before it lands would save a half-built frame.
+  await stage.settled();
   return stage.atExportSize(async () => {
     await textSettled();
     stage.render();
@@ -71,6 +74,13 @@ export async function saveVideo(
     startTime = 0,
     onProgress,
   } = opts;
+
+  // A demo whose frames depend on work still in flight (a convergence
+  // sequence being traced, say) registers it with Stage.onReady. Waiting
+  // here is what stops an export from capturing the preparation instead of
+  // the figure — `speed = 0` holds the preview but never the exporter,
+  // which drives setTime directly.
+  await stage.settled();
 
   const total = Math.round(duration * fps);
   const wasRunning = true;

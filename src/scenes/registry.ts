@@ -7,7 +7,7 @@
 // must stay importable from plain Node. Everything needing a bundler (the
 // fetched OBJ models) lives in ./assets.ts, and the three.js vantage points
 // live in src/viz/views.ts.
-import type { SceneDescription } from '../core/scene/scene';
+import type { MaterialDescription, SceneDescription } from '../core/scene/scene';
 import { CORNELL } from './cornell';
 const CORNELL_GLASS: SceneDescription = {
   camera: CORNELL.camera,
@@ -47,11 +47,17 @@ const CORNELL_CAUSTIC: SceneDescription = {
 // The CATEGORICAL scene (V5c, 2026-08-03): cornell-caustic with a POINT
 // light. S(D)S transport from a delta emitter has measure-zero
 // probability under every local strategy — PT can never hit the light,
-// NEE's shadow rays refract away at the glass, BDPT dies on the delta
-// chain (and its sampleLe returns null here anyway). The caustic EXISTS
-// only in the pt-sms pane; everywhere else that floor patch is black.
-// pt / pt-nee / pt-sms only — bidirectional integrators must not rely on
-// delta lights (the V2 lock stands).
+// NEE's shadow rays refract away at the glass, and BDPT's connections die
+// on the delta chain. The caustic EXISTS only in the pt-sms pane;
+// everywhere else that floor patch is black. THAT is the claim, and it is
+// about the S(D)S caustic specifically.
+//
+// It is NOT that the other integrators break on the scene: BDPT and MMLT
+// carry a point light perfectly well (V5c gave PointLight a real
+// sampleLe/pdfLe; measured against NEE in tests/delta-light-mis.test.ts),
+// they simply cannot find this particular transport. ReSTIR is the one
+// that genuinely does not support delta lights at all — its reservoir
+// target is zero at one (docs/design-cleanup.md §7).
 const CORNELL_DELTA: SceneDescription = {
   camera: CORNELL.camera,
   primitives: CORNELL_CAUSTIC.primitives.filter((p) => p.name !== 'light'),
@@ -220,6 +226,25 @@ const CAUSTIC_RING: SceneDescription = {
   ],
 };
 
+// A bare stage for looking at ONE material: the Cornell shell with a single
+// sphere in the middle and nothing else to distract from it. The material is
+// a parameter because the point is to change it — demos/material-test drives
+// this from the UI; the registry entry below is just a default so the scene
+// shows up in every other page's scene menu too.
+export function materialTestScene(material: MaterialDescription): SceneDescription {
+  return {
+    camera: CORNELL.camera,
+    primitives: [
+      ...CORNELL.primitives.filter((p) => p.name !== 'ball' && p.name !== 'ballBlue'),
+      {
+        name: 'testObject',
+        shape: { kind: 'sphere', center: [0, 1.05, 0.1], radius: 1.05 },
+        material,
+      },
+    ],
+  };
+}
+
 export const SCENES = {
   cornell: CORNELL,
   'cornell-glass': CORNELL_GLASS,
@@ -231,6 +256,7 @@ export const SCENES = {
   'door-ajar': doorAjarScene(),
   'open-stage': OPEN_STAGE,
   'material-row': MATERIAL_ROW,
+  'material-test': materialTestScene({ kind: 'conductor', f0: [1.0, 0.77, 0.34], roughness: 0.25 }),
 } satisfies Record<string, SceneDescription>;
 
 export type SceneName = keyof typeof SCENES;

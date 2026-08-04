@@ -96,7 +96,17 @@ export function createUI(stage: Stage, opts: UIOptions = {}): DemoUI {
   }
 
   // --- capture -------------------------------------------------------------
-  const capture = { fps, format: 'mp4' as 'mp4' | 'prores', duration: stage.duration };
+  // The export RANGE is `from` -> `to` on the demo's own clock, rather than
+  // a bare length: a figure whose interesting part is the first 6 s of a 20 s
+  // loop should be exportable without anyone doing arithmetic. Defaults to
+  // the whole loop, and stays independently settable — that is how you
+  // export a slice.
+  const capture = {
+    fps,
+    format: 'mp4' as 'mp4' | 'prores',
+    from: 0,
+    to: stage.duration,
+  };
   const f = gui.addFolder('Capture');
   f.add({ still: async () => {
       try {
@@ -107,22 +117,43 @@ export function createUI(stage: Stage, opts: UIOptions = {}): DemoUI {
       }
     } }, 'still').name('save PNG (S)');
   f.add(capture, 'fps', [24, 30, 60]).name('fps');
-  f.add(capture, 'duration', 0.5, 30, 0.5).name('seconds');
+  const fromC = f.add(capture, 'from').min(0).step(0.1).name('from (s)');
+  const toC = f.add(capture, 'to').min(0).step(0.1).name('to (s)');
+  f.add({ whole: () => {
+      capture.from = 0;
+      capture.to = stage.duration;
+      fromC.updateDisplay();
+      toC.updateDisplay();
+      toast(`export range 0 – ${stage.duration.toFixed(1)} s`, 1400);
+    } }, 'whole').name('whole loop');
   f.add(capture, 'format', ['mp4', 'prores']).name('format');
-  f.add({ video: async () => {
+
+  const runVideo = async () => {
+    const from = Math.max(0, capture.from);
+    const to = capture.to;
+    if (!(to > from)) {
+      toast(`export range is empty: from ${from} s, to ${to} s`, 5000);
+      return;
+    }
+    // saveVideo awaits Stage.onReady work itself; say so, or a demo that
+    // spends 40 s tracing passes before it can animate looks hung.
+    toast('waiting for the demo to be ready…', 0);
+    try {
+      await stage.settled();
       toast('rendering frames…', 0);
-      try {
-        const p = await saveVideo(stage, name, {
-          fps: capture.fps,
-          duration: capture.duration,
-          format: capture.format,
-          onProgress: (d, t) => toast(`frame ${d}/${t}  (${Math.round((100 * d) / t)}%)`, 0),
-        });
-        toast(`saved ${p}`, 6000);
-      } catch (e) {
-        toast(`video failed: ${e}`, 6000);
-      }
-    } }, 'video').name('render video (V)');
+      const p = await saveVideo(stage, name, {
+        fps: capture.fps,
+        startTime: from,
+        duration: to - from,
+        format: capture.format,
+        onProgress: (d, t) => toast(`frame ${d}/${t}  (${Math.round((100 * d) / t)}%)`, 0),
+      });
+      toast(`saved ${p}`, 6000);
+    } catch (e) {
+      toast(`video failed: ${e}`, 6000);
+    }
+  };
+  f.add({ video: runVideo }, 'video').name('render video (V)');
 
   // --- hint ----------------------------------------------------------------
   const hint = document.createElement('div');
@@ -152,15 +183,7 @@ export function createUI(stage: Stage, opts: UIOptions = {}): DemoUI {
     } else if (k === 's') {
       saveStill(stage, name).then((p) => toast(`saved ${p}`)).catch((err) => toast(`${err}`, 5000));
     } else if (k === 'v') {
-      toast('rendering frames…', 0);
-      saveVideo(stage, name, {
-        fps: capture.fps,
-        duration: capture.duration,
-        format: capture.format,
-        onProgress: (d, t) => toast(`frame ${d}/${t}  (${Math.round((100 * d) / t)}%)`, 0),
-      })
-        .then((p) => toast(`saved ${p}`, 6000))
-        .catch((err) => toast(`${err}`, 6000));
+      void runVideo(); // same range as the button — one code path, one truth
     } else if (k === 'r') {
       stage.t = 0;
     } else if (e.code === 'Space') {

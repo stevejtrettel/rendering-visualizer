@@ -41,8 +41,64 @@ export interface ImagePlaneConfig {
   exposure?: number;
 }
 
+/**
+ * Where the image plane sits on the camera frustum, and the basis it is
+ * laid out in. Shared so anything drawn RELATIVE to the plane — a tile
+ * dropping onto it, an annotation beside it — agrees with it exactly
+ * instead of recomputing the same camera basis and drifting.
+ */
+export interface PlaneFrame {
+  center: THREE.Vector3;
+  right: THREE.Vector3;
+  up: THREE.Vector3;
+  forward: THREE.Vector3;
+  eye: THREE.Vector3;
+  halfW: number;
+  halfH: number;
+}
+
+export function imagePlaneFrame(
+  camera: ImagePlaneConfig['camera'],
+  distance: number,
+): PlaneFrame {
+  const eye = new THREE.Vector3(...camera.eye);
+  const forward = new THREE.Vector3(...camera.lookAt).sub(eye).normalize();
+  const right = forward.clone().cross(new THREE.Vector3(...camera.up)).normalize();
+  const up = right.clone().cross(forward);
+  const halfH = distance * Math.tan((camera.fovDegrees * Math.PI) / 360);
+  return {
+    center: eye.clone().addScaledVector(forward, distance),
+    right,
+    up,
+    forward,
+    eye,
+    halfH,
+    halfW: halfH, // square film, like the CPU camera in these demos
+  };
+}
+
+/** Fill an RGBA buffer from one sample's raw values (not a running mean). */
+export function fillSampleRgba(
+  out: Uint8ClampedArray,
+  values: Float32Array,
+  res: number,
+  sample: number,
+  exposure = 1,
+): void {
+  const base = sample * res * res * 3;
+  for (let i = 0; i < res * res; i++) {
+    const o = i * 4;
+    out[o] = srgbEncode(values[base + i * 3]! * exposure);
+    out[o + 1] = srgbEncode(values[base + i * 3 + 1]! * exposure);
+    out[o + 2] = srgbEncode(values[base + i * 3 + 2]! * exposure);
+    out[o + 3] = 255;
+  }
+}
+
 export class ImagePlaneElement implements TimelineElement {
-  private readonly group = new THREE.Group();
+  // Public so a figure can hide the plane outright — before the first
+  // sample has landed there is no running mean to show.
+  readonly group = new THREE.Group();
   private readonly texture: THREE.DataTexture;
   private readonly rgba: Uint8Array;
   private lastSample = -2;
@@ -57,14 +113,10 @@ export class ImagePlaneElement implements TimelineElement {
     this.texture.magFilter = THREE.NearestFilter; // crisp cells
     this.texture.minFilter = THREE.NearestFilter;
 
-    // Camera basis (same math as the core pinhole camera).
-    const eye = new THREE.Vector3(...cfg.camera.eye);
-    const forward = new THREE.Vector3(...cfg.camera.lookAt).sub(eye).normalize();
-    const right = forward.clone().cross(new THREE.Vector3(...cfg.camera.up)).normalize();
-    const up = right.clone().cross(forward);
-    const tanHalf = Math.tan((cfg.camera.fovDegrees * Math.PI) / 360);
-    const halfH = cfg.distance * tanHalf;
-    const halfW = halfH; // square film, like the CPU camera in these demos
+    const { eye, right, up, forward, center, halfW, halfH } = imagePlaneFrame(
+      cfg.camera,
+      cfg.distance,
+    );
 
     const plane = new THREE.Mesh(
       new THREE.PlaneGeometry(2 * halfW, 2 * halfH),
@@ -77,7 +129,6 @@ export class ImagePlaneElement implements TimelineElement {
         toneMapped: false,
       }),
     );
-    const center = eye.clone().addScaledVector(forward, cfg.distance);
     plane.position.copy(center);
     plane.matrixAutoUpdate = true;
     plane.up.copy(up);

@@ -6,10 +6,14 @@
 // obstruction). The manifold solver is the only unbiased route, so the
 // caustic exists in the pt-sms pane and is BLACK everywhere else.
 //
-// V2's "no delta lights" lock still stands for BDPT/MMLT: sampleLe
-// returns null (no light subpath — the light simply does not participate
-// in bidirectional transport rather than crashing it), and delta-lit
-// scenes are documented as pt / pt-nee / pt-sms territory.
+// V2's "no delta lights" lock was LIFTED by V5c and this comment used to
+// say otherwise (that sampleLe returned null) long after it stopped being
+// true. It does not: sampleLe below emits from the point with pdfPos = 1,
+// bdpt.ts handles the discrete origin through lightIsDelta, and
+// tests/delta-light-mis.test.ts measures BDPT and MMLT agreeing with NEE
+// on a point-lit box. Plain PT still renders black, correctly — a delta
+// light cannot be hit. ReSTIR is the one integrator that does not support
+// these (see that test, and docs/design-cleanup.md §7).
 import { Vec3 } from '../math/vec3';
 import { Color } from '../math/color';
 import { Ray } from '../math/ray';

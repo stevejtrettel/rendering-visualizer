@@ -187,6 +187,12 @@ is fine — which is what makes exporting a page that is path tracing while it
 animates possible at all. Set the format to `prores` for a ProRes 4444
 `.mov`, which is what Keynote prefers for fine gradients.
 
+**Capture › from (s) / to (s)** set the range on the demo's own clock, so
+exporting the first 6 s of a 20 s loop is two numbers rather than
+arithmetic. They default to the whole loop, and *whole loop* resets them to
+it. The range is deliberately independent of Time › loop (s): the loop is
+how long the animation takes, the range is what you want out of it.
+
 Export needs the dev server (the writing-to-disk half is vite middleware)
 and `ffmpeg` on PATH. `npm run build` produces a static gallery without it.
 

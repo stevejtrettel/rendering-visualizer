@@ -21,6 +21,42 @@ export interface DemoInfo {
 
 /** Optional metadata, keyed by folder name. */
 export const INFO: Record<string, DemoInfo> = {
+  convergence: {
+    title: 'Convergence',
+    blurb:
+      'Noise falling away as samples accumulate, 1 spp to 256. Paced by doublings, so it dwells where the picture is still changing.',
+    section: 'Act 0 — the renderer',
+  },
+  'convergence-split': {
+    title: 'Convergence — side by side',
+    blurb:
+      'Two tracers on one scene, converging in step. Held level by sample count, or by wall-clock time.',
+    section: 'Act 0 — the renderer',
+  },
+  'convergence-wipe': {
+    title: 'Convergence — wipe',
+    blurb:
+      'The same pair in one frame, pixel-registered under a divider you drag. For when the difference is too subtle to catch across two panels.',
+    section: 'Act 0 — the renderer',
+  },
+  'material-test': {
+    title: 'One material, on its own',
+    blurb:
+      'The Cornell shell with a single sphere in the middle. Set its material in the panel, record it converging, change the material, record again — the takes cut together.',
+    section: 'Act 0 — the renderer',
+  },
+  'sample-swarm': {
+    title: 'Importance sampling, drawn',
+    blurb:
+      "One pixel's paths, N at a time, thickness by throughput. Toggle between uniform and BSDF sampling and watch the lobe move from the weights into the ray density.",
+    section: 'Act 1 — one path',
+  },
+  'pixel-grid': {
+    title: 'An image being computed',
+    blurb:
+      'A small grid of pixels on the camera frustum. Every sample fires one ray per pixel, they bounce around the room, and the mini-image fills in as their contributions accumulate.',
+    section: 'Act 0 — the renderer',
+  },
   'hello-stage': {
     title: 'Hello Stage',
     blurb: 'Palette, lighting and export check — a Cornell box with one traced path drawn across it.',

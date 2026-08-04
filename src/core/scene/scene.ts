@@ -55,9 +55,11 @@ export interface SceneDescription {
   };
   primitives: PrimitiveDescription[];
   // Delta emitters (V5c): geometry-free, so they live beside the
-  // primitive list. Supported by pt / pt-nee / pt-sms; BDPT/MMLT scenes
-  // must not rely on them (PointLight.sampleLe returns null — the light
-  // silently does not participate in bidirectional transport).
+  // primitive list. Carried by pt-nee, pt-sms, BDPT and MMLT alike
+  // (measured in tests/delta-light-mis.test.ts). Plain PT renders them
+  // black by construction — a delta light cannot be hit — which is the
+  // point of the `cornell-delta` scene. ReSTIR does NOT support them: its
+  // reservoir target is zero at a delta emitter (docs/design-cleanup.md §7).
   pointLights?: { p: Vec3Tuple; intensity: ColorTuple }[];
 }
 

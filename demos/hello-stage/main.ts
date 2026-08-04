@@ -106,18 +106,26 @@ const caption = label('pt-nee · 0 spp', {
 });
 stage.hud.add(caption);
 
-new RenderSession({
-  description,
-  integrator: 'pt-nee',
-  width: RENDER_RES,
-  height: RENDER_RES,
-  targetSpp: TARGET_SPP,
-  maxDepth: MAX_BOUNCES,
-  onUpdate: (s) => {
-    panel.update(s.rgba);
-    caption.text = `pt-nee · ${s.spp} spp · ${s.msPerPass.toFixed(0)} ms/pass`;
-    caption.sync();
-  },
+// The pane converges in real time, which is fine to watch but is NOT a
+// function of the stage clock — so an export has to wait for it, or the
+// movie would show the render at whatever point the tracer reached rather
+// than a settled image. Stage.onReady is how a demo says that.
+const rendered = new Promise<void>((resolve) => {
+  new RenderSession({
+    description,
+    integrator: 'pt-nee',
+    width: RENDER_RES,
+    height: RENDER_RES,
+    targetSpp: TARGET_SPP,
+    maxDepth: MAX_BOUNCES,
+    onUpdate: (s) => {
+      panel.update(s.rgba);
+      caption.text = `pt-nee · ${s.spp} spp · ${s.msPerPass.toFixed(0)} ms/pass`;
+      caption.sync();
+      if (s.done) resolve();
+    },
+  });
 });
+stage.onReady(() => rendered);
 
 stage.start();

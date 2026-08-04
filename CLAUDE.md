@@ -60,8 +60,10 @@ build-config entry. Optional title/blurb/section for the gallery go in
 - Colours come from `src/viz/style.ts`; the path language's mapping onto
   it lives in `PATH_COLORS` (`src/viz/path-elements.ts`).
 - Export: `S` = PNG, `V` = video, `H` = hide panel, `R` = restart,
-  `space` = pause. Frames POST to vite middleware which runs ffmpeg;
-  everything lands in `out/` (gitignored, needs the dev server + ffmpeg).
+  `space` = pause. Capture › from/to set the export range on the demo's
+  clock (defaults to the whole loop). Frames POST to vite middleware which
+  runs ffmpeg; everything lands in `out/` (gitignored, needs the dev
+  server + ffmpeg).
 - `demos/hello-stage/` is the worked example. `legacy/` holds the
   pre-rebuild demo set for reference only — not built, not typechecked.
 

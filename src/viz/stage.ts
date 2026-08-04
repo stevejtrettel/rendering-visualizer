@@ -62,6 +62,7 @@ export class Stage {
   loop = true;
 
   private frameFns: FrameFn[] = [];
+  private readyFns: Array<() => Promise<void> | void> = [];
   private _hud?: THREE.Scene;
   private _hudCamera?: THREE.OrthographicCamera;
   private orthoHeight: number;
@@ -137,6 +138,26 @@ export class Stage {
   frame(fn: FrameFn): this {
     this.frameFns.push(fn);
     return this;
+  }
+
+  /**
+   * Register asynchronous preparation the EXPORTER must wait for.
+   *
+   * Setting `speed = 0` holds the live preview, but it does NOT hold an
+   * export: the exporter drives `setTime` directly and never consults
+   * speed. So a demo whose frames depend on work that is still running —
+   * a convergence sequence being traced, an asset being fetched — must say
+   * so here, or pressing V mid-preparation captures whatever happened to
+   * be on screen at the time.
+   */
+  onReady(fn: () => Promise<void> | void): this {
+    this.readyFns.push(fn);
+    return this;
+  }
+
+  /** Resolves once every onReady() registration has finished. */
+  async settled(): Promise<void> {
+    for (const fn of this.readyFns) await fn();
   }
 
   /** Shorthand for scene.add. */
