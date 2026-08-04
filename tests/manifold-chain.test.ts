@@ -18,7 +18,7 @@ import { Dielectric } from '../src/core/materials/dielectric';
 import { TransportMode } from '../src/core/materials/bsdf';
 import { Mat2 } from '../src/core/manifold/mat2';
 import { ManifoldVertex } from '../src/core/manifold/vertex';
-import { DEFAULT_WALK_OPTIONS, type ManifoldWalkOptions } from '../src/core/manifold/newton';
+import { DEFAULT_MANIFOLD_WALK_OPTIONS, type ManifoldWalkOptions } from '../src/core/manifold/newton';
 import {
   chainSeed,
   chainWalk,
@@ -29,7 +29,7 @@ import {
 } from '../src/core/manifold/chain';
 
 const TIGHT: ManifoldWalkOptions = {
-  ...DEFAULT_WALK_OPTIONS,
+  ...DEFAULT_MANIFOLD_WALK_OPTIONS,
   constraint: 'halfvector',
   solverThreshold: 1e-12,
   maxIterations: 50,

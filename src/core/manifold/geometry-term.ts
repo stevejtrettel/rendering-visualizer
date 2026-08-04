@@ -14,12 +14,10 @@
 // Mitsuba. The unclamped ratio is exported for the fold visualization.
 import { absDot } from '../math/vec3';
 import { Mat2 } from './mat2';
-import { DET_GUARD } from './constraints';
+import { DET_GUARD, MIN_EDGE_LENGTH } from './constraints';
 import type { ManifoldVertex } from './vertex';
 
 export const G_RATIO_CLAMP = 100; // under re-measurement vs the photon oracle: 1 (the Mitsuba SS value) chopped the focused delta-light caustic in HALF; 100 matches 1e6 — final value pending the discovery test
-
-const MIN_EDGE_LENGTH = 1e-3;
 
 // |det((∂C/∂x₁)⁻¹ · ∂C/∂x₂)| — unclamped; null when degenerate/singular.
 export function specularManifoldDetRatio(

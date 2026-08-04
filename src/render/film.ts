@@ -6,7 +6,7 @@
 // lumSqSum accumulates squared sample luminance, giving a per-pixel
 // standard-error estimate for the convergence/error view.
 // Per-worker films merge by plain summation (V1).
-import { Color } from '../core/math/color';
+import { Color, luminanceOf } from '../core/math/color';
 import type { Sample2D } from '../core/math/sampling';
 
 const STRIDE = 8;
@@ -70,8 +70,7 @@ export class Film {
     const i = (y * this.width + x) * STRIDE;
     const n = this.data[i + 3]!;
     if (n <= 1) return Infinity;
-    const meanLum =
-      0.2126 * (this.data[i]! / n) + 0.7152 * (this.data[i + 1]! / n) + 0.0722 * (this.data[i + 2]! / n);
+    const meanLum = luminanceOf(this.data[i]! / n, this.data[i + 1]! / n, this.data[i + 2]! / n);
     const meanSq = this.data[i + 7]! / n;
     const variance = Math.max(0, meanSq - meanLum * meanLum);
     return Math.sqrt(variance / n);
@@ -100,7 +99,7 @@ export class Film {
     for (let y = 0; y < this.height; y++) {
       for (let x = 0; x < this.width; x++) {
         const [r, g, b] = this.pixel(x, y, { splatScale: 0 });
-        const meanLum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        const meanLum = luminanceOf(r, g, b);
         const se = this.standardError(x, y);
         const rel = meanLum > 1e-6 && Number.isFinite(se) ? se / meanLum : se === 0 ? 0 : 1;
         const t = Math.min(1, rel / scale);

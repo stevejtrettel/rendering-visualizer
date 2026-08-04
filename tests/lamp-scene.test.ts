@@ -7,7 +7,7 @@ import type { Integrator } from '../src/core/integrators/types';
 import { renderPass } from '../src/render/driver';
 import { Film } from '../src/render/film';
 
-// The uplight scene (demos/_shared/scenes.ts 'cornell-lamp', inlined per
+// The uplight scene (src/scenes/registry.ts 'cornell-lamp', inlined per
 // test convention): the emitter faces the ceiling inside a shaded fixture,
 // so the room is lit ENTIRELY by the ceiling bounce. These tests guard the
 // challenge property itself — if someone moves or flips the fixture, the

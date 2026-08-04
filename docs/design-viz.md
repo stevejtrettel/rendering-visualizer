@@ -50,12 +50,19 @@ One language across every demo and every future stage; BDPT and MLT inherit
 it rather than inventing their own. Recorded here so figures stay
 consistent talk-wide.
 
+**Amended 2026-08-04:** the hues below now come from the talk's mineral
+palette in `src/viz/style.ts` (black void; slate, blue, moss, ochre, rust,
+bone), so trajectories, scenery, graphs and labels are one visual system
+across the whole deck rather than two. Every distinction the language
+relies on survives — only the hues moved, and they move again by editing
+`PATH_COLORS` in `src/viz/path-elements.ts`, in one place, for every figure.
+
 | Element | Treatment |
 |---|---|
-| Camera-path segments | warm white → amber; **brightness/width scales with throughput** (log-scaled, clamped) |
-| Light-subpath segments (V2) | cyan family — instantly distinguishable from camera paths |
-| Connections / shadow rays | green when the connection succeeds; red, drawn only as far as the blocker, when occluded |
-| Delta (specular) bounces (V1b) | sharp specular white; no lobe overlay (there is no lobe — that's the point) |
+| Camera-path segments | ochre, dimming toward `ochreDeep`; **brightness/width scales with throughput** (log-scaled, clamped) |
+| Light-subpath segments (V2) | blue family — instantly distinguishable from camera paths |
+| Connections / shadow rays | moss when the connection succeeds; rust, drawn only as far as the blocker, when occluded |
+| Delta (specular) bounces (V1b) | bone — achromatic against every coloured path; no lobe overlay (there is no lobe — that's the point) |
 | Scattering vertices | small dot; active vertex enlarged while "its" moment plays |
 | Emission hit | brief bloom flash at the light; path locks to its final color |
 | Russian-roulette death | small × marker at the vertex; path freezes and dims |

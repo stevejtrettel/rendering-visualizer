@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SCENES } from '../demos/_shared/scenes';
+import { SCENES } from '../src/scenes/registry';
 import { buildScene, type Scene, type SceneDescription } from '../src/core/scene/scene';
 import { IndependentSampler } from '../src/core/sampler/independent';
 import { pixelSeedKey } from '../src/core/sampler/sampler';

@@ -21,7 +21,7 @@ import {
   computeStepAnglediff,
   computeStepHalfvector,
 } from '../src/core/manifold/constraints';
-import { manifoldWalk, DEFAULT_WALK_OPTIONS } from '../src/core/manifold/newton';
+import { manifoldWalk, DEFAULT_MANIFOLD_WALK_OPTIONS } from '../src/core/manifold/newton';
 import type { ShapeIntersection } from '../src/core/geometry/shape';
 
 const EPS = 1e-5;
@@ -243,7 +243,7 @@ describe('constraint Jacobians vs finite differences', () => {
       bReflect,
       caster,
       agg,
-      { ...DEFAULT_WALK_OPTIONS, solverThreshold: 1e-12, maxIterations: 40 },
+      { ...DEFAULT_MANIFOLD_WALK_OPTIONS, solverThreshold: 1e-12, maxIterations: 40 },
     );
     expect(result.outcome).toBe('converged');
     const root = result.vertex!;

@@ -78,7 +78,7 @@ function bruteForce(mesh: { positions: Float32Array; indices: Uint32Array }, ray
 }
 
 describe('TriangleMesh + BVH', () => {
-  const teapotText = readFileSync(join(import.meta.dirname, '../demos/_shared/models/teapot.obj'), 'utf8');
+  const teapotText = readFileSync(join(import.meta.dirname, '../src/scenes/models/teapot.obj'), 'utf8');
   const parsed = parseOBJ(teapotText);
 
   it('BVH traversal agrees with brute force on thousands of random rays', () => {

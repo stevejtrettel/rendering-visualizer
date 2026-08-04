@@ -23,14 +23,11 @@ export interface InitMessage {
   reply?: 'rgba' | 'film';
 }
 
-// For ReSTIR, passes are NOT exchangeable (pass k consumes pass k-1's
-// reservoirs): 'restir' must run on ONE worker with sequential passes —
-// the pool's activeWorkers option exists for exactly this.
-//
-// For MMLT, `sampleIndex` names a mutation BATCH: batch k runs the disjoint
-// chain-index range [k*K, (k+1)*K) for one mutation-per-pixel's worth of
-// mutations, so the pool's sample-parallel scheduling partitions chains
-// with no new coordination and "spp" accounting becomes mutations/pixel.
+// What `sampleIndex` names is the renderer's business (see renderer.ts): a
+// sample index for the per-pixel integrators, a disjoint mutation BATCH for
+// MMLT — which is what makes "spp" accounting become mutations/pixel — and
+// advisory for ReSTIR, whose passes are not exchangeable at all. The pool
+// asks `passesAreExchangeable` rather than being told.
 export interface PassMessage {
   type: 'pass';
   sampleIndex: number;
@@ -45,11 +42,10 @@ export interface PassDoneMessage {
   samplesPerPixel: number;
   passMillis: number;
   // sRGB RGBA8 frame + false-color relative-SE view, both transferred.
+  // Developed by the worker's Renderer, so the error view is already
+  // whatever is honest for this algorithm.
   rgba: Uint8ClampedArray<ArrayBuffer>;
   errorRgba: Uint8ClampedArray<ArrayBuffer>;
-  // MMLT only: the worker's bootstrap normalization (identical across
-  // workers — same seed, same deterministic census).
-  mltB?: number;
 }
 
 export interface FilmPassMessage {
@@ -59,9 +55,11 @@ export interface FilmPassMessage {
   passesDone: number; // this worker's completed pass count
   passMillis: number;
   film: Float64Array<ArrayBuffer>; // snapshot of the worker's accumulated film
-  // MMLT only: bootstrap normalization; the caller develops merged films
-  // with splatScale = mltB / totalPasses (one pass = one mutation/pixel).
-  mltB?: number;
+  // Splat normalization for the MERGED film: splatScale = splatNorm /
+  // totalPasses. Identical across workers (same seed, same deterministic
+  // setup), and meaningful for every algorithm — this replaced the
+  // MMLT-specific `mltB` field.
+  splatNorm: number;
 }
 
 export type WorkerToMain = PassDoneMessage | FilmPassMessage;

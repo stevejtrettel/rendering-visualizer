@@ -3,6 +3,7 @@
 // RR coin), when the emission flash or escape fade happens. Pure data in,
 // pure data out — the three.js elements just evaluate it at time t, which
 // is what makes scrubbing and frame-stepping trivially correct.
+import { luminanceOf } from '../core/math/color';
 import type { PathRecord, ShadowRayRecord, Tuple3, VertexRecord } from '../trace/records';
 import type { WalkRole } from '../trace/recorder';
 
@@ -55,7 +56,7 @@ export interface PathSchedule {
 const dist = (a: Tuple3, b: Tuple3) =>
   Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
 
-const luminance = (c: Tuple3) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+const luminance = (c: Tuple3) => luminanceOf(c[0], c[1], c[2]);
 
 // Which vertex list of the record to schedule. BDPT paths carry two walks;
 // the default is the camera walk, exactly as before.

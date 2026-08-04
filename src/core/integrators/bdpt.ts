@@ -22,7 +22,8 @@ import type { Scene } from '../scene/scene';
 import type { Sampler } from '../sampler/sampler';
 import { CAMERA_STREAM, CONNECTION_STREAM, LIGHT_STREAM } from '../sampler/sampler';
 import type { Recorder } from '../../trace/recorder';
-import { cameraVertex, lightVertex, type PathVertex } from './vertex';
+import { lightVertex, type PathVertex } from './vertex';
+import { cameraSample, walkFromCamera } from './estimators';
 import { randomWalk, type WalkOptions } from './walk';
 import { misWeight, type MisHeuristic, type MisOverrides, type MisVertex } from './bdpt-mis';
 import type { Contribution, Integrator, Pixel } from './types';
@@ -98,12 +99,7 @@ export function cameraSubpathFromRaster(
   recorder: Recorder,
   options: BDPTOptions,
 ): PathVertex[] {
-  const ray = scene.camera.generateRay(raster);
-  const start = cameraVertex(scene.camera, Color.WHITE);
-  const { pdfDir } = scene.camera.pdfWe(ray);
-  return randomWalk(
-    scene, start, ray, Color.WHITE, pdfDir, TransportMode.Radiance, sampler, recorder, walkOptions(options),
-  );
+  return walkFromCamera(scene, scene.camera.generateRay(raster), sampler, recorder, walkOptions(options));
 }
 
 export function generateCameraSubpath(
@@ -114,8 +110,7 @@ export function generateCameraSubpath(
   options: BDPTOptions,
 ): { raster: Sample2D; vertices: PathVertex[] } {
   sampler.startStream(CAMERA_STREAM);
-  const u = sampler.nextPixel2D();
-  const raster: Sample2D = [pixel[0] + u[0], pixel[1] + u[1]];
+  const { raster } = cameraSample(scene, pixel, sampler);
   return { raster, vertices: cameraSubpathFromRaster(scene, raster, sampler, recorder, options) };
 }
 

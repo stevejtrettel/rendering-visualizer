@@ -1,86 +1,88 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Rendering Visualizer — demos</title>
-  <style>
-    body { margin: 0; padding: 2rem; background: #111; color: #eaeaea;
-           font: 15px/1.5 ui-sans-serif, system-ui, sans-serif; }
-    h1 { font-weight: 600; margin: 0 0 .3rem; }
-    h2 { font-size: 13px; font-weight: 600; color: #ffaa33; margin: 1.6rem 0 .4rem;
-         text-transform: uppercase; letter-spacing: .06em; }
-    p.sub { color: #888; max-width: 66ch; }
-    p.rule { color: #666; max-width: 72ch; font-size: 13px; }
-    ul { list-style: none; padding: 0; max-width: 96ch; }
-    li { margin: .15rem 0; }
-    a { color: #6ea8fe; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    .what { color: #999; }
-    .pending { color: #666; }
-  </style>
-</head>
-<body>
-  <h1>Rendering Visualizer</h1>
-  <p class="sub">Bidirectional path tracing, visualized: a CPU renderer and
-     three.js visualizations of its light trajectories.</p>
-  <p class="rule">Each page below shows <em>one</em> thing, with every parameter fixed as a
-     constant at the top of its <code>main.ts</code>. Where a page exists to <em>compare</em>
-     kinds of thing — three integrators, three ways a path can end — that comparison is its
-     one control; everything incidental stays a constant.</p>
-
-  <h2>Act 0 — the renderer and the scenes</h2>
-  <ul>
-    <li><a href="./demos/render-still/">render-still</a> <span class="what">— one scene by all five integrators (PT / NEE / BDPT / MMLT / ReSTIR), equal samples, with per-pass cost</span></li>
-    <li><a href="./demos/scene-sheet/">scene-sheet</a> <span class="what">— every scene in the registry at equal samples</span></li>
-    <li><a href="./demos/material-strip/">material-strip</a> <span class="what">— every material the renderer has, one sphere each</span></li>
-    <li><a href="./demos/depth-sweep/">depth-sweep</a> <span class="what">— the image at 1, 2, 3, 4 and 32 bounces</span></li>
-  </ul>
-
-  <h2>Act 1 — the vocabulary of one path</h2>
-  <ul>
-    <li><a href="./demos/path-strategies/">path-strategies</a> <span class="what">— which algorithm builds the path: PT / PT+NEE / BDPT <em>(switch)</em></span></li>
-    <li><a href="./demos/path-outcomes/">path-outcomes</a> <span class="what">— how a walk ends: emitter / roulette death / escape <em>(switch)</em></span></li>
-    <li><a href="./demos/connection-outcomes/">connection-outcomes</a> <span class="what">— one light connection, clear or blocked <em>(switch)</em></span></li>
-  </ul>
-
-  <h2>Act 2 — populations of paths</h2>
-  <ul>
-    <li><a href="./demos/path-swarm/">path-swarm</a> <span class="what">— 100 of one pixel's paths at once, churning; 1 / 2 / full length <em>(switch)</em></span></li>
-    <li><a href="./demos/light-swarm/">light-swarm</a> <span class="what">— 100 paths thrown from the lamp, connecting to the camera <em>(switch)</em></span></li>
-  </ul>
-
-  <h2>Tier 3 — path-traced beauty</h2>
-  <ul>
-    <li><a href="./demos/light-path-beauty/">light-path-beauty</a> <span class="what">— one long light path, lamp to pinhole, as glowing geometry; lit by the path or by the lamp <em>(switch)</em></span></li>
-    <li><a href="./demos/pixel-paths-beauty/">pixel-paths-beauty</a> <span class="what">— 50 unidirectional walks feeding one pixel, as matte strands; live preview, path-traced on demand <em>(switch)</em></span></li>
-  </ul>
-
-  <h2>Specular manifolds (V5)</h2>
-  <ul>
-    <li><a href="./demos/viz-manifold-walk/">viz-manifold-walk</a> <span class="what">— the Newton walk solving a specular connection: seed dotted, iterates ramp red&rarr;green, the chain snaps solid; failures evaporate; the two-bounce scene slides both glass crossings in step <em>(switch)</em></span></li>
-    <li><a href="./demos/viz-caustic-fold/">viz-caustic-fold</a> <span class="what">— a receiver sweeping through the caustic: solution branches merge, the projection determinant blows up, the rendered floor glows on the same line</span></li>
-  </ul>
-
-  <h2>ReSTIR (V4)</h2>
-  <ul>
-    <li><a href="./demos/viz-restir-flow/">viz-restir-flow</a> <span class="what">— reservoirs sharing light samples: source map, reuse lineage of any pixel, discoveries propagating</span></li>
-  </ul>
-
-  <h2>Metropolis (V3)</h2>
-  <ul>
-    <li><a href="./demos/viz-mlt-chain/">viz-mlt-chain</a> <span class="what">— one Markov chain walking path space: proposals ghost in, accepts solidify, rejects evaporate, splats accumulate</span></li>
-  </ul>
-
-  <h2>Not yet rebuilt</h2>
-  <p class="rule">The remaining multi-purpose pages, kept until their single-purpose
-     replacements land — Act 2 (one pixel, many samples), Act 3 (the image and its noise),
-     Act 4 (bidirectional).</p>
-  <ul>
-    <li><a href="./demos/viz-single-path/">viz-single-path</a> <span class="pending">— one sample animated; bdpt dual-subpath mode; movie export</span></li>
-    <li><a href="./demos/viz-pixel-samples/">viz-pixel-samples</a> <span class="pending">— one pixel's samples flipped or accumulated</span></li>
-    <li><a href="./demos/viz-image-forming/">viz-image-forming</a> <span class="pending">— a low-res image forming on a plane inside the scene</span></li>
-    <li><a href="./demos/viz-convergence/">viz-convergence</a> <span class="pending">— convergence scrub, integrator wipe (now incl. MMLT), error view</span></li>
-    <li><a href="./demos/viz-bdpt-pyramid/">viz-bdpt-pyramid</a> <span class="pending">— every BDPT (s,t) strategy live in its own cell</span></li>
-  </ul>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>rendering-visualizer</title>
+    <style>
+      :root {
+        --bg: #000;
+        --bone: #d9d1c2;
+        --ash: #9a9287;
+        --slate: #7c8b96;
+        --slate-deep: #3d4750;
+        --ochre: #d4a63f;
+        --card: #101315;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--bone);
+        font: 15px/1.6 ui-sans-serif, -apple-system, "Helvetica Neue", sans-serif;
+        padding: 56px 40px 80px;
+      }
+      header { max-width: 1100px; margin: 0 auto 40px; }
+      h1 {
+        font-size: 26px; font-weight: 600; margin: 0 0 6px;
+        letter-spacing: -0.01em;
+      }
+      header p { margin: 0; color: var(--ash); font-size: 14px; }
+      main { max-width: 1100px; margin: 0 auto; }
+      h2 {
+        font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em;
+        color: var(--slate); font-weight: 600;
+        margin: 40px 0 14px; padding-bottom: 8px;
+        border-bottom: 1px solid var(--slate-deep);
+      }
+      .grid {
+        display: grid; gap: 12px;
+        grid-template-columns: repeat(auto-fill, minmax(255px, 1fr));
+      }
+      a.card {
+        display: block; padding: 16px 18px;
+        background: var(--card); border: 1px solid var(--slate-deep);
+        border-radius: 8px; text-decoration: none; color: inherit;
+        transition: border-color 120ms, transform 120ms, background 120ms;
+      }
+      a.card:hover {
+        border-color: var(--ochre); background: #161a1d;
+        transform: translateY(-2px);
+      }
+      .card .name { font-weight: 600; font-size: 15px; margin-bottom: 3px; }
+      .card .slug {
+        font: 11px ui-monospace, Menlo, monospace; color: var(--slate-deep);
+        margin-bottom: 7px;
+      }
+      .card .blurb { font-size: 13px; color: var(--ash); line-height: 1.5; }
+      .empty { color: var(--ash); font-size: 14px; }
+      code {
+        font: 12px ui-monospace, Menlo, monospace;
+        background: #101315; padding: 2px 6px; border-radius: 4px;
+        color: var(--ochre);
+      }
+      footer {
+        max-width: 1100px; margin: 56px auto 0; padding-top: 20px;
+        border-top: 1px solid var(--slate-deep);
+        color: var(--slate-deep); font-size: 12.5px;
+      }
+      kbd {
+        font: 11px ui-monospace, Menlo, monospace; color: var(--slate);
+        border: 1px solid var(--slate-deep); border-radius: 3px;
+        padding: 1px 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>rendering-visualizer</h1>
+      <p>A CPU path tracer and a visualization of it, sharing one core — figures for the talk on the mathematics of rendering.</p>
+    </header>
+    <main id="list"></main>
+    <footer>
+      In any demo: <kbd>S</kbd> save PNG · <kbd>V</kbd> render mp4 · <kbd>H</kbd> hide panel ·
+      <kbd>space</kbd> pause. Exports land in <code>out/</code>.
+    </footer>
+    <script type="module" src="/src/gallery.ts"></script>
+  </body>
 </html>

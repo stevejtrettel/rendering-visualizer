@@ -29,7 +29,9 @@ export type ConstraintType = 'halfvector' | 'anglediff';
 export const DET_GUARD = 1e-6;
 
 // Degenerate-configuration guard on edge lengths (manifold_ss.cpp:424).
-const MIN_EDGE_LENGTH = 1e-3;
+// Shared by every module that measures a chain edge — the single-bounce
+// step here, the chain blocks, and the geometry term.
+export const MIN_EDGE_LENGTH = 1e-3;
 
 export interface ConstraintStep {
   C: [number, number]; // constraint residual

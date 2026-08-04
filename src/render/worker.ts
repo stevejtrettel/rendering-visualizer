@@ -1,116 +1,46 @@
-// Web Worker entry: builds the scene from its description, renders passes on
-// request, ships back developed frames. The film stays worker-side; the main
-// thread re-traces individual paths itself when the user inspects a pixel
-// (determinism is the storage — nothing per-path crosses over).
+// Web Worker entry: build the scene from its description, render passes on
+// request, ship back either developed frames or raw film data. The film
+// stays worker-side; the main thread re-traces individual paths itself when
+// the user inspects a pixel (determinism is the storage — nothing per-path
+// crosses over).
 //
-// MMLT mode: init runs the deterministic bootstrap (redundant across
-// workers — same seed, same census, same b); each 'pass' runs one disjoint
-// batch of chains worth one mutation per pixel, so pass accounting works
-// like spp and pooled films merge by summation exactly as for the other
-// integrators.
-import { buildScene, type Scene } from '../core/scene/scene';
-import { IndependentSampler } from '../core/sampler/independent';
-import { UnidirectionalPT } from '../core/integrators/pt';
-import { SingleTermPT } from '../core/integrators/pt-term';
-import { NEEPathTracer } from '../core/integrators/pt-nee';
-import { SMSPathTracer } from '../core/integrators/pt-sms';
-import { BDPT } from '../core/integrators/bdpt';
-import { DEFAULT_WALK_OPTIONS } from '../core/integrators/walk';
-import type { Integrator } from '../core/integrators/types';
+// Everything algorithm-specific lives behind `Renderer` (see renderer.ts):
+// how a pass is spent, how splats are normalized, whether an error view
+// means anything. This file is only the message plumbing.
+import { buildScene } from '../core/scene/scene';
 import { Film } from './film';
-import { renderPass } from './driver';
-import { MltRunner } from './mlt-driver';
-import { RestirRunner } from './restir-driver';
+import { createRenderer, type Renderer } from './renderer';
 import type { MainToWorker, PassDoneMessage } from './protocol';
 
-// MMLT batch geometry: each pass spends ~nPixels mutations, split into
-// chains of roughly this many mutations each. Long chains keep the
-// footprint noise low; the exact split is recomputed per resolution.
-const TARGET_CHAIN_LENGTH = 4096;
-
-let scene: Scene | null = null;
 let film: Film | null = null;
-let sampler: IndependentSampler | null = null;
-let integrator: Integrator = new UnidirectionalPT();
-let mlt: MltRunner | null = null;
-let restir: RestirRunner | null = null;
-let chainsPerBatch = 0;
-let mutationsPerChain = 0;
+let renderer: Renderer | null = null;
 let epoch = 0;
 let replyMode: 'rgba' | 'film' = 'rgba';
 let passesDone = 0;
 
-// Flat dark frame: the standard-error view assumes independent samples,
-// which MMLT's correlated splats are not — there is nothing honest to show.
-function flatErrorFrame(pixels: number): Uint8ClampedArray<ArrayBuffer> {
-  const out = new Uint8ClampedArray(pixels * 4);
-  for (let i = 0; i < pixels; i++) {
-    out[i * 4] = 24;
-    out[i * 4 + 1] = 24;
-    out[i * 4 + 2] = 28;
-    out[i * 4 + 3] = 255;
-  }
-  return out;
-}
-
 self.onmessage = (event: MessageEvent<MainToWorker>) => {
   const msg = event.data;
+
   if (msg.type === 'init') {
-    scene = buildScene(msg.description, msg.width, msg.height);
+    const scene = buildScene(msg.description, msg.width, msg.height);
     film = new Film(msg.width, msg.height);
-    sampler = new IndependentSampler(msg.seed);
-    const depth = msg.maxDepth;
-    restir = null;
-    if (msg.integrator === 'mmlt') {
-      mlt = new MltRunner(scene, film, { seed: msg.seed, ...(depth !== undefined ? { maxDepth: depth } : {}) });
-      const nPixels = msg.width * msg.height;
-      chainsPerBatch = Math.max(1, Math.round(nPixels / TARGET_CHAIN_LENGTH));
-      mutationsPerChain = Math.ceil(nPixels / chainsPerBatch);
-    } else if (msg.integrator === 'restir') {
-      // Non-exchangeable passes: callers must schedule this worker alone
-      // (pool activeWorkers = 1); msg.sampleIndex is advisory — the runner
-      // owns the pass sequence.
-      mlt = null;
-      restir = new RestirRunner(scene, film, {
-        seed: msg.seed,
-        ...(depth !== undefined ? { maxBounces: depth } : {}),
-      });
-    } else {
-      mlt = null;
-      integrator =
-        msg.integrator === 'bdpt'
-          ? new BDPT(depth !== undefined ? { maxBounces: depth } : {})
-          : msg.integrator === 'pt-sms'
-            ? // Interactive panes run the UNBIASED estimator config: measured
-              // (design-v5 §V5b checkpoint-2 note) 7× cheaper per pass than
-              // the biased-M8 library default AND closer to reference (−1.1%
-              // vs −1.5% zone) — a failed first walk ends the estimate. A
-              // biased-M8 pass on cornell-glass at 320² is ~140 s, which
-              // reads as a dead pane.
-              new SMSPathTracer({ estimator: 'unbiased', ...(depth !== undefined ? { maxBounces: depth } : {}) })
-            : msg.integrator === 'pt-nee'
-              ? new NEEPathTracer(depth !== undefined ? { maxBounces: depth } : {})
-              : msg.integrator === 'pt-term'
-                ? new SingleTermPT(depth !== undefined ? { maxBounces: depth } : {})
-                : new UnidirectionalPT(depth !== undefined ? { ...DEFAULT_WALK_OPTIONS, maxBounces: depth } : DEFAULT_WALK_OPTIONS);
-    }
+    renderer = createRenderer(msg.integrator, scene, film, {
+      seed: msg.seed,
+      ...(msg.maxDepth !== undefined ? { maxDepth: msg.maxDepth } : {}),
+    });
     epoch = msg.epoch ?? 0;
     replyMode = msg.reply ?? 'rgba';
     passesDone = 0;
     return;
   }
+
   if (msg.type === 'pass') {
-    if (!scene || !film || !sampler) throw new Error('worker: pass before init');
+    if (!film || !renderer) throw new Error('worker: pass before init');
     const t0 = performance.now();
-    if (mlt) {
-      mlt.runChains(msg.sampleIndex * chainsPerBatch, chainsPerBatch, mutationsPerChain);
-    } else if (restir) {
-      restir.pass();
-    } else {
-      renderPass(scene, integrator, sampler, film, msg.sampleIndex);
-    }
+    renderer.pass(msg.sampleIndex);
     const passMillis = performance.now() - t0;
     passesDone += 1;
+
     if (replyMode === 'film') {
       const snapshot = new Float64Array(film.data); // copy, then transfer
       (self as unknown as Worker).postMessage(
@@ -121,21 +51,14 @@ self.onmessage = (event: MessageEvent<MainToWorker>) => {
           passesDone,
           passMillis,
           film: snapshot,
-          ...(mlt ? { mltB: mlt.b } : {}),
+          splatNorm: renderer.splatNorm(),
         },
         [snapshot.buffer],
       );
       return;
     }
-    // splatScale: BDPT's t=1 light-tracing splats average over passes
-    // (1/spp); MMLT's splat-only image normalizes by b over the mutations
-    // per pixel actually spent (batches may overshoot nPixels slightly).
-    const nPixels = film.width * film.height;
-    const splatScale = mlt
-      ? (mlt.b * nPixels) / (passesDone * chainsPerBatch * mutationsPerChain)
-      : 1 / passesDone;
-    const rgba = film.develop({ splatScale });
-    const errorRgba = mlt ? flatErrorFrame(nPixels) : film.developError();
+
+    const { rgba, errorRgba } = renderer.develop(passesDone);
     const reply: PassDoneMessage = {
       type: 'passDone',
       epoch,
@@ -144,7 +67,6 @@ self.onmessage = (event: MessageEvent<MainToWorker>) => {
       passMillis,
       rgba,
       errorRgba,
-      ...(mlt ? { mltB: mlt.b } : {}),
     };
     (self as unknown as Worker).postMessage(reply, [rgba.buffer, errorRgba.buffer]);
   }

@@ -4,15 +4,18 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "node scripts/run-demo.mjs dev",
-    "build": "node scripts/run-demo.mjs build",
-    "preview": "node scripts/run-demo.mjs preview",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "video": "node scripts/encode.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "lil-gui": "^0.21.0",
     "three": "^0.185.1",
-    "three-gpu-pathtracer": "^0.0.24"
+    "three-gpu-pathtracer": "^0.0.24",
+    "troika-three-text": "^0.52.5"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",

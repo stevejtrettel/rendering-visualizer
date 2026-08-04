@@ -12,7 +12,7 @@
 // scrub, and frame-stepped export all show the same populations.
 import * as THREE from 'three';
 import type { Tuple3 } from '../trace/records';
-import { segmentColor, type PathPalette } from './path-elements';
+import { PATH_COLORS, segmentColor, type PathPalette } from './path-elements';
 
 export type SwarmPalette = PathPalette | 'connection' | 'blocked';
 
@@ -26,8 +26,8 @@ export interface SwarmPolyline {
   age: number;
 }
 
-const CONNECTION = new THREE.Color(0x44cc66);
-const BLOCKED = new THREE.Color(0xdd4444);
+const CONNECTION = new THREE.Color(PATH_COLORS.connectionOk);
+const BLOCKED = new THREE.Color(PATH_COLORS.connectionBlocked);
 
 function colorFor(line: SwarmPolyline): THREE.Color {
   if (line.palette === 'connection') return CONNECTION.clone();

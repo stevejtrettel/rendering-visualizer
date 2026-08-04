@@ -7,15 +7,17 @@
 // dependent but statistically equivalent).
 import type { SceneDescription } from '../core/scene/scene';
 import type { FilmPassMessage, InitMessage, IntegratorName, WorkerToMain } from './protocol';
+import { developFilm, passesAreExchangeable, type DevelopedFrame } from './renderer';
 import { Film } from './film';
 
 export interface PoolUpdate {
   totalSpp: number; // for MMLT: total mutation batches = mutations/pixel
   wallMillis: number;
-  film: Film; // merged — develop()/developError() as needed
-  // MMLT only: bootstrap normalization (identical across workers).
-  // Develop the merged film with splatScale = mltB / totalSpp.
-  mltB?: number;
+  film: Film; // merged — raw, if a caller wants the numbers
+  // The merged film developed under this integrator's conventions (splat
+  // normalization, and whether an error view is meaningful). Callers should
+  // prefer this to developing `film` themselves.
+  frame(): DevelopedFrame;
 }
 
 export interface PoolOptions {
@@ -32,11 +34,6 @@ export interface PoolOptions {
   // protocol fixes. In-flight passes still land (labels stay honest).
   maxSpp: number;
   maxMillis?: number;
-  // How many of the pool's workers actually render (default: all).
-  // Integrators with non-exchangeable passes (restir) must use 1 — pass k
-  // depends on pass k-1's worker-side state, so sample-parallel splitting
-  // would silently break the algorithm.
-  activeWorkers?: number;
   onUpdate: (u: PoolUpdate) => void;
 }
 
@@ -46,9 +43,17 @@ export class WorkerPool {
   private passCounts: number[] = [];
   private epoch = 0;
   private startTime = 0;
-  private mltB: number | undefined;
+  private splatNorm = 1;
   private opts: PoolOptions;
   private readonly merged: Film;
+
+  // Workers that actually render. An integrator whose passes are NOT
+  // exchangeable (restir: pass k consumes pass k-1's reservoirs) must run
+  // alone — read off the algorithm rather than set by hand at every call
+  // site, which is what the old `activeWorkers` option required.
+  private get active(): number {
+    return passesAreExchangeable(this.opts.integrator) ? this.opts.size : 1;
+  }
 
   constructor(opts: PoolOptions) {
     this.opts = opts;
@@ -66,15 +71,15 @@ export class WorkerPool {
 
   restart(
     description: SceneDescription,
-    overrides: Partial<Pick<PoolOptions, 'integrator' | 'maxSpp' | 'maxMillis' | 'activeWorkers'>> = {},
+    overrides: Partial<Pick<PoolOptions, 'integrator' | 'maxSpp' | 'maxMillis'>> = {},
   ): void {
     this.epoch += 1;
     this.opts = { ...this.opts, description, ...overrides };
     this.films.fill(null);
     this.passCounts.fill(0);
-    this.mltB = undefined;
+    this.splatNorm = 1;
     this.startTime = performance.now();
-    const active = Math.min(this.opts.activeWorkers ?? this.opts.size, this.opts.size);
+    const active = this.active;
     this.workers.forEach((worker, k) => {
       if (k >= active) return; // idle worker under this configuration
       const init: InitMessage = {
@@ -98,10 +103,10 @@ export class WorkerPool {
     const m = msg as FilmPassMessage;
     this.films[index] = m.film;
     this.passCounts[index] = m.passesDone;
-    if (m.mltB !== undefined) this.mltB = m.mltB;
+    this.splatNorm = m.splatNorm;
 
-    // Next sample index for this worker: k + passesDone * activeWorkers.
-    const active = Math.min(this.opts.activeWorkers ?? this.opts.size, this.opts.size);
+    // Next sample index for this worker: k + passesDone * active.
+    const active = this.active;
     const next = index + m.passesDone * active;
     const withinTime =
       this.opts.maxMillis === undefined || performance.now() - this.startTime < this.opts.maxMillis;
@@ -119,11 +124,13 @@ export class WorkerPool {
       const dst = this.merged.data;
       for (let i = 0; i < dst.length; i++) dst[i]! += f[i]!;
     }
+    const { integrator } = this.opts;
+    const splatNorm = this.splatNorm;
     this.opts.onUpdate({
       totalSpp,
       wallMillis: performance.now() - this.startTime,
       film: this.merged,
-      ...(this.mltB !== undefined ? { mltB: this.mltB } : {}),
+      frame: () => developFilm(integrator, this.merged, totalSpp, splatNorm),
     });
   }
 

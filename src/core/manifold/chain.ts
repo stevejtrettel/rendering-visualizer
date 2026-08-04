@@ -22,6 +22,7 @@ import { Mat2 } from './mat2';
 import { ManifoldVertex } from './vertex';
 import {
   DET_GUARD,
+  MIN_EDGE_LENGTH,
   dSphcoords,
   dReflect,
   dRefract,
@@ -32,8 +33,6 @@ import {
 } from './constraints';
 import { G_RATIO_CLAMP } from './geometry-term';
 import type { ManifoldWalkOptions, ManifoldWalkOutcome } from './newton';
-
-const MIN_EDGE_LENGTH = 1e-3;
 
 // The discrete chain type, receiver → light order: which primitive each
 // vertex lies on and the prescribed relative IOR of its event (V5b

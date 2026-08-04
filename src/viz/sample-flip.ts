@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import { luminanceOf } from '../core/math/color';
 import type { PathRecord, VertexRecord } from '../trace/records';
 import type { TimelineElement } from './timeline';
 import { brightness, segmentColor, type PathPalette, type PathStyle } from './path-elements';
@@ -53,7 +54,7 @@ class SampleElement implements TimelineElement {
   private addWalk(g: THREE.Group, vs: readonly VertexRecord[], palette: PathPalette): void {
     if (vs.length < 2) return;
     const meanBeta =
-      vs.slice(1).reduce((s, v) => s + (0.2126 * v.beta[0] + 0.7152 * v.beta[1] + 0.0722 * v.beta[2]), 0) /
+      vs.slice(1).reduce((s, v) => s + luminanceOf(v.beta[0], v.beta[1], v.beta[2]), 0) /
       (vs.length - 1);
     const color = segmentColor(meanBeta, false, palette);
     if (this.style.tier === 'lines') {

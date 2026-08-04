@@ -13,12 +13,10 @@
 // estimator targets the same depth-capped transport integral as the other
 // depth-capped integrators — comparisons stay apples-to-apples.
 import { Color } from '../math/color';
-import { TransportMode } from '../materials/bsdf';
 import type { Scene } from '../scene/scene';
 import type { Sampler } from '../sampler/sampler';
 import type { Recorder } from '../../trace/recorder';
-import { cameraVertex } from './vertex';
-import { randomWalk } from './walk';
+import { cameraSample, walkFromCamera } from './estimators';
 import type { Contribution, Integrator, Pixel } from './types';
 
 export interface SingleTermOptions {
@@ -52,12 +50,10 @@ export class SingleTermPT implements Integrator {
   }
 
   sampleContributions(pixel: Pixel, sampler: Sampler, scene: Scene, recorder: Recorder): Contribution[] {
-    const u = sampler.nextPixel2D();
-    const raster = [pixel[0] + u[0], pixel[1] + u[1]] as const;
-    const ray = scene.camera.generateRay(raster);
+    const { raster, ray } = cameraSample(scene, pixel, sampler);
 
     // Term index right after the film sample — one extra dimension ahead of
-    // the walk's fixed layout.
+    // the walk's fixed layout, which is why the preamble is split in two.
     const { n, pmf } = sampleTermLength(
       sampler.next1D(),
       this.options.continueProb,
@@ -65,13 +61,12 @@ export class SingleTermPT implements Integrator {
     );
     recorder.lengthDraw({ n, pmf });
 
-    const start = cameraVertex(scene.camera, Color.WHITE);
-    const { pdfDir } = scene.camera.pdfWe(ray);
     // rrStartDepth beyond the cap: the committed lifetime replaces RR.
-    const vertices = randomWalk(
-      scene, start, ray, Color.WHITE, pdfDir, TransportMode.Radiance, sampler, recorder,
-      { maxBounces: n, rrStartDepth: n + 1, sampleNEE: false },
-    );
+    const vertices = walkFromCamera(scene, ray, sampler, recorder, {
+      maxBounces: n,
+      rrStartDepth: n + 1,
+      sampleNEE: false,
+    });
 
     // vertices = [camera, v_1 .. v_k], k <= n; only a path that reached
     // depth n exactly contributes, and only through vertex n's emission.

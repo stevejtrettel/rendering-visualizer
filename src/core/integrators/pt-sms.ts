@@ -26,7 +26,6 @@ import { Vec3, absDot } from '../math/vec3';
 import { OrthonormalBasis } from '../math/onb';
 import { TransportMode, hasNonSpecular, type BxDF } from '../materials/bsdf';
 import { RAY_EPSILON } from '../geometry/offset';
-import { occlusionPoint } from '../geometry/visibility';
 import { Sphere } from '../geometry/sphere';
 import { Quad } from '../geometry/quad';
 import { TriangleMesh } from '../geometry/triangle-mesh';
@@ -47,9 +46,9 @@ import {
 } from '../manifold/newton';
 import { geometricTerm } from '../manifold/geometry-term';
 import { chainGeometricTerm, chainSeed, chainWalk, type ChainLink } from '../manifold/chain';
-import { cameraVertex, type PathVertex } from './vertex';
-import { DEFAULT_WALK_OPTIONS, randomWalk, type WalkOptions } from './walk';
-import { powerHeuristic } from './mis';
+import type { PathVertex } from './vertex';
+import { cameraSample, directLighting, walkFromCamera } from './estimators';
+import { DEFAULT_WALK_OPTIONS, type WalkOptions } from './walk';
 import type { Contribution, Integrator, Pixel } from './types';
 
 // The narrow structural contract a specular caster's material fulfills
@@ -419,15 +418,8 @@ export class SMSPathTracer implements Integrator {
   }
 
   sampleContributions(pixel: Pixel, sampler: Sampler, scene: Scene, recorder: Recorder): Contribution[] {
-    const u = sampler.nextPixel2D();
-    const raster = [pixel[0] + u[0], pixel[1] + u[1]] as const;
-    const ray = scene.camera.generateRay(raster);
-
-    const start = cameraVertex(scene.camera, Color.WHITE);
-    const { pdfDir } = scene.camera.pdfWe(ray);
-    const vertices = randomWalk(
-      scene, start, ray, Color.WHITE, pdfDir, TransportMode.Radiance, sampler, recorder, this.options,
-    );
+    const { raster, ray } = cameraSample(scene, pixel, sampler);
+    const vertices = walkFromCamera(scene, ray, sampler, recorder, this.options);
 
     // All SMS dimensions live after the walk's, in their own stream —
     // trial counts are data-dependent and must not shift walk dimensions.
@@ -436,55 +428,15 @@ export class SMSPathTracer implements Integrator {
     let L = Color.BLACK;
     for (let k = 1; k < vertices.length; k++) {
       const v = vertices[k]!;
-      const prev = vertices[k - 1]!;
 
-      // (a) Emission hit by BSDF sampling — pt-nee's branch, minus the
-      // SMS-owned family (see header).
-      const hitLight = v.primitive?.light;
-      if (hitLight && v.wo) {
-        const Le = hitLight.le(v.p, v.ng, v.uv, v.wo);
-        if (!Le.isBlack() && !this.smsOwnsEmitterHit(vertices, k)) {
-          let weight = 1;
-          if (prev.bsdf && prev.wo && prev.wiSampled && !prev.delta) {
-            const pBsdf = prev.bsdf.pdf(prev.wo, prev.wiSampled, TransportMode.Radiance);
-            const pLight =
-              scene.lightDistribution.pmf(hitLight) *
-              hitLight.pdfLi({ p: prev.p, ng: prev.ng, ns: prev.ns }, prev.wiSampled);
-            weight = powerHeuristic(pBsdf, pLight);
-          }
-          L = L.add(v.beta.mul(Le).scale(weight));
-        }
-      }
-
-      // (b) NEE connection — pt-nee's, unchanged.
-      if (v.bsdf && v.wo && v.neeSamples && hasNonSpecular(v.bsdf.flags)) {
-        const selected = scene.lightDistribution.sample(v.neeSamples.select);
-        if (selected) {
-          const li = selected.light.sampleLi({ p: v.p, ng: v.ng, ns: v.ns }, v.neeSamples.point);
-          if (li) {
-            const f = v.bsdf.eval(v.wo, li.wi, TransportMode.Radiance);
-            if (!f.isBlack()) {
-              const blockedAt = occlusionPoint(scene.aggregate, { p: v.p, ng: v.ng }, li.pLight);
-              recorder.shadowRay({
-                depth: k,
-                from: v.p,
-                to: li.pLight.p,
-                occluded: blockedAt !== null,
-                blockedAt,
-              });
-              if (blockedAt === null) {
-                const pLight = selected.pmf * li.pdf;
-                const pBsdf = v.bsdf.pdf(v.wo, li.wi, TransportMode.Radiance);
-                // Delta lights admit no competing BSDF strategy: weight 1
-                // (mirrors pt-nee — forgetting this mirror cost 5% of wall
-                // brightness on delta scenes, caught by eye).
-                const weight = selected.light.type === 'area' ? powerHeuristic(pLight, pBsdf) : 1;
-                L = L.add(v.beta.mul(f).mul(li.L).scale((absDot(li.wi, v.ns) / pLight) * weight));
-              }
-            }
-          }
-        }
-      }
+      // (a) + (b): pt-nee's estimator exactly, minus the emitter hits of
+      // the SMS-owned families (see the header's partition note) — those
+      // are supplied by (c) instead.
+      L = L.add(
+        directLighting(scene, vertices, k, recorder, {
+          skipEmitterHit: (depth) => this.smsOwnsEmitterHit(vertices, depth),
+        }),
+      );
 
       // (c) The SMS connection — the strategy pt-nee cannot attempt.
       if (v.bsdf && v.wo && hasNonSpecular(v.bsdf.flags)) {

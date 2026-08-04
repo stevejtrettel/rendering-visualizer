@@ -22,7 +22,7 @@ import { ManifoldVertex } from '../src/core/manifold/vertex';
 import {
   manifoldWalk,
   sameSolution,
-  DEFAULT_WALK_OPTIONS,
+  DEFAULT_MANIFOLD_WALK_OPTIONS,
   UNIQUENESS_THRESHOLD,
   type ManifoldWalkOptions,
   type ManifoldWalkResult,
@@ -44,7 +44,7 @@ const pointVertex = (p: Vec3, n: Vec3): ManifoldVertex => {
 };
 
 const TIGHT: ManifoldWalkOptions = {
-  ...DEFAULT_WALK_OPTIONS,
+  ...DEFAULT_MANIFOLD_WALK_OPTIONS,
   solverThreshold: 1e-12,
   maxIterations: 50,
 };
@@ -78,7 +78,7 @@ describe('planar mirror: the closed-form single root', () => {
         [0.05, 0.6],
       ] as const) {
         const result = manifoldWalk(a, seedAt(u, v), 1, b, caster, aggregate, {
-          ...DEFAULT_WALK_OPTIONS,
+          ...DEFAULT_MANIFOLD_WALK_OPTIONS,
           constraint,
         });
         expect(result.outcome).toBe('converged');
@@ -91,7 +91,7 @@ describe('planar mirror: the closed-form single root', () => {
       const uStar = (xStar.x + 2) / 4;
       const vStar = (xStar.y + 2) / 4;
       const result = manifoldWalk(a, seedAt(uStar + 0.03, vStar - 0.03), 1, b, caster, aggregate, {
-        ...DEFAULT_WALK_OPTIONS,
+        ...DEFAULT_MANIFOLD_WALK_OPTIONS,
         constraint,
       });
       expect(result.outcome).toBe('converged');

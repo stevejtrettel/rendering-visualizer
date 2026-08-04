@@ -33,7 +33,9 @@ export interface ManifoldWalkOptions {
   stepScale: number; // < 1 slows the walk down — mostly for visualizations
 }
 
-export const DEFAULT_WALK_OPTIONS: ManifoldWalkOptions = {
+// Named for its module: `integrators/walk.ts` exports an unrelated
+// DEFAULT_WALK_OPTIONS, and pt-sms imports from both.
+export const DEFAULT_MANIFOLD_WALK_OPTIONS: ManifoldWalkOptions = {
   constraint: 'anglediff',
   maxIterations: MAX_ITERATIONS,
   solverThreshold: SOLVER_THRESHOLD,
@@ -68,7 +70,7 @@ export function manifoldWalk(
   lightP: Vec3,
   caster: Primitive,
   aggregate: Aggregate,
-  options: ManifoldWalkOptions = DEFAULT_WALK_OPTIONS,
+  options: ManifoldWalkOptions = DEFAULT_MANIFOLD_WALK_OPTIONS,
 ): ManifoldWalkResult {
   let vtx = new ManifoldVertex(init, eta);
   const iterates: ManifoldIterate[] = [];

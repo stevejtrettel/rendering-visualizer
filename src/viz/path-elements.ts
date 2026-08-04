@@ -1,12 +1,14 @@
 // three.js elements that render a PathSchedule at time t, in either render
 // tier: 'lines' (Line2, real pixel width) or 'tubes' (TubeGeometry meshes).
-// Visual language per docs/design-viz.md: camera paths warm white -> amber,
-// brightness/width by throughput; shadow rays green / red-to-blocker;
-// delta bounces specular white; RR death an x-marker; escapes fade out.
+// Visual language per docs/design-viz.md, in the talk's mineral palette
+// (PATH_COLORS below): camera paths ochre and light subpaths blue, both
+// dimmed by throughput; connections moss, or rust dying at the blocker;
+// specular bounces bone; RR death an x-marker; escapes fade out.
 import * as THREE from 'three';
 import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import { C } from './style';
 import type { PathSchedule, SegmentTiming, VertexMoment } from './path-schedule';
 import { segmentProgress } from './path-schedule';
 import type { Tuple3 } from '../trace/records';
@@ -14,8 +16,8 @@ import type { TimelineElement } from './timeline';
 
 export type RenderTier = 'lines' | 'tubes';
 
-// Which subpath a set of elements draws: camera walks in the warm amber
-// language, light walks (BDPT) in cyan.
+// Which subpath a set of elements draws: camera walks warm (ochre), light
+// walks (BDPT) cold (blue).
 export type PathPalette = 'camera' | 'light';
 
 export interface PathStyle {
@@ -40,26 +42,50 @@ export function brightness(betaLuminance: number): number {
   return 0.25 + 0.75 * Math.min(1, b);
 }
 
-// Camera: warm white -> amber. Light subpath: cyan. Both scaled by
-// throughput brightness; specular white in either language.
+// The path language, mapped onto the talk's mineral palette (src/viz/style.ts)
+// so trajectories, scenery, graphs and labels are one visual system:
+//
+//   camera subpath   ochre  — light as the camera gathers it
+//   light subpath    blue   — the cold counter-direction
+//   clear connection moss   — a connection that carried energy
+//   blocked          rust   — the hot "this failed" accent
+//   specular bounce  bone   — the diagram's ink, deliberately achromatic
+//
+// The distinctions design-viz relies on all survive; only the hues moved.
+// Retune here and every figure in the deck follows.
+export const PATH_COLORS = {
+  camera: C.ochre,
+  cameraDim: C.ochreDeep,
+  light: C.blue,
+  lightDim: C.blueDeep,
+  specular: C.bone,
+  connectionOk: C.moss,
+  connectionBlocked: C.rust,
+} as const;
+
+// Throughput dims a segment toward its own Deep variant rather than toward
+// black: a faint path keeps its identity instead of dissolving into the void.
 export function segmentColor(
   betaLuminance: number,
   delta: boolean,
   palette: PathPalette = 'camera',
 ): THREE.Color {
-  if (delta) return new THREE.Color(1, 1, 1); // specular white
+  if (delta) return new THREE.Color(PATH_COLORS.specular);
   const b = brightness(betaLuminance);
-  const hue = palette === 'light' ? 0.52 : 0.09;
-  // Light subpaths carry Le-scaled throughput that pins the brightness ramp;
-  // cap their lightness so the cyan stays saturated instead of washing white.
-  const lightness = 0.35 + 0.5 * b;
-  return new THREE.Color().setHSL(hue, 0.85, palette === 'light' ? Math.min(lightness, 0.6) : lightness);
+  const [dim, full] =
+    palette === 'light'
+      ? [PATH_COLORS.lightDim, PATH_COLORS.light]
+      : [PATH_COLORS.cameraDim, PATH_COLORS.camera];
+  return new THREE.Color(dim).lerp(new THREE.Color(full), b);
 }
 
-const DOT_COLOR: Record<PathPalette, number> = { camera: 0xffc070, light: 0x70d8ff };
-const ARROW_COLOR: Record<PathPalette, number> = { camera: 0xffe0b0, light: 0xb0e8ff };
-const SHADOW_OK = new THREE.Color(0x44cc66);
-const SHADOW_BLOCKED = new THREE.Color(0xdd4444);
+const DOT_COLOR: Record<PathPalette, number> = {
+  camera: PATH_COLORS.camera,
+  light: PATH_COLORS.light,
+};
+const ARROW_COLOR: Record<PathPalette, number> = { camera: C.ash, light: C.slate };
+const SHADOW_OK = new THREE.Color(PATH_COLORS.connectionOk);
+const SHADOW_BLOCKED = new THREE.Color(PATH_COLORS.connectionBlocked);
 
 // One growing segment of the path, in either tier.
 class SegmentElement implements TimelineElement {
@@ -148,7 +174,7 @@ class MomentElement implements TimelineElement {
   ) {
     parent.add(this.group);
     const palette = style.palette ?? 'camera';
-    const dotColor = m.delta ? 0xffffff : DOT_COLOR[palette];
+    const dotColor = m.delta ? PATH_COLORS.specular : DOT_COLOR[palette];
     this.dot = new THREE.Mesh(
       new THREE.SphereGeometry(0.035, 12, 8),
       new THREE.MeshBasicMaterial({ color: dotColor }),
@@ -179,7 +205,7 @@ class MomentElement implements TimelineElement {
 
     if (m.rrDeath) {
       this.rrMarker = new THREE.Group();
-      const mat = new LineMaterial({ color: 0xff5555, linewidth: 2.5 });
+      const mat = new LineMaterial({ color: PATH_COLORS.connectionBlocked, linewidth: 2.5 });
       mat.resolution.copy(style.resolution);
       const s = 0.11;
       for (const [dx, dz] of [[1, 1], [1, -1]] as const) {
@@ -231,7 +257,7 @@ class EmissionFlash implements TimelineElement {
   ) {
     this.mesh = new THREE.Mesh(
       new THREE.SphereGeometry(0.16, 16, 12),
-      new THREE.MeshBasicMaterial({ color: 0xffffcc, transparent: true, opacity: 0, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ color: C.ochre, transparent: true, opacity: 0, depthWrite: false }),
     );
     this.mesh.position.copy(v3(p));
     parent.add(this.mesh);
@@ -266,7 +292,7 @@ class EscapeFade implements TimelineElement {
     const g = new LineGeometry();
     g.setPositions([...e.from, tip.x, tip.y, tip.z]);
     this.material = new LineMaterial({
-      color: 0x8899bb, linewidth: style.lineWidth * 0.6, transparent: true, opacity: 0,
+      color: C.slateDeep, linewidth: style.lineWidth * 0.6, transparent: true, opacity: 0,
     });
     this.material.resolution.copy(style.resolution);
     this.line = new Line2(g, this.material);

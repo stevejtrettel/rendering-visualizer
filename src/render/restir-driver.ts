@@ -37,9 +37,7 @@ import type { Light } from '../core/lights/light';
 import { PowerLightSampler } from '../core/lights/power';
 import { IndependentSampler } from '../core/sampler/independent';
 import { pixelSeedKey } from '../core/sampler/sampler';
-import { cameraVertex } from '../core/integrators/vertex';
-import { randomWalk } from '../core/integrators/walk';
-import { powerHeuristic } from '../core/integrators/mis';
+import { directLighting, walkFromCamera } from '../core/integrators/estimators';
 import { Reservoir } from '../core/restir/reservoir';
 import { misWeightSum, pairwiseMisWeight, type MisKind } from '../core/restir/mis';
 import { NULL_RECORDER, type Recorder } from '../trace/recorder';
@@ -501,58 +499,24 @@ export class RestirRunner {
   // lights) are always kept.
   private walkContribution(hit: PrimaryHit, key: ReturnType<typeof pixelSeedKey>, recorder: Recorder): Color {
     this.sampler.startPixelSample(key, DIM_SHADE);
-    const ray = this.scene.camera.generateRay(hit.raster);
-    const start = cameraVertex(this.scene.camera, Color.WHITE);
-    const { pdfDir } = this.scene.camera.pdfWe(ray);
-    const vertices = randomWalk(
-      this.scene, start, ray, Color.WHITE, pdfDir, TransportMode.Radiance,
-      this.sampler, recorder,
+    const vertices = walkFromCamera(
+      this.scene,
+      this.scene.camera.generateRay(hit.raster),
+      this.sampler,
+      recorder,
       { maxBounces: this.options.maxBounces, rrStartDepth: this.options.rrStartDepth, sampleNEE: true },
     );
 
+    // pt-nee's estimator under the two ReSTIR exceptions. Sharing it is
+    // what fixed the delta-light MIS guard this copy used to be missing.
     let L = Color.BLACK;
     for (let k = 1; k < vertices.length; k++) {
-      const v = vertices[k]!;
-      const prev = vertices[k - 1]!;
-
-      const hitLight = v.primitive?.light;
-      if (hitLight && v.wo) {
-        const Le = hitLight.le(v.p, v.ng, v.uv, v.wo);
-        if (!Le.isBlack()) {
-          if (k === 2 && !hit.delta) {
-            // Direct-at-primary via BSDF sampling: reservoir-owned, zero here.
-          } else {
-            let weight = 1;
-            if (prev.bsdf && prev.wo && prev.wiSampled && !prev.delta && k >= 2) {
-              const pBsdf = prev.bsdf.pdf(prev.wo, prev.wiSampled, TransportMode.Radiance);
-              const pLight =
-                this.scene.lightDistribution.pmf(hitLight) *
-                hitLight.pdfLi({ p: prev.p, ng: prev.ng, ns: prev.ns }, prev.wiSampled);
-              weight = powerHeuristic(pBsdf, pLight);
-            }
-            L = L.add(v.beta.mul(Le).scale(weight));
-          }
-        }
-      }
-
-      // NEE from vertex k — skipped at the primary vertex (reservoir owns
-      // it when non-delta; pt-nee itself would skip a delta primary).
-      if (k === 1) continue;
-      if (v.bsdf && v.wo && v.neeSamples && hasNonSpecular(v.bsdf.flags)) {
-        const selected = this.scene.lightDistribution.sample(v.neeSamples.select);
-        if (!selected) continue;
-        const li = selected.light.sampleLi({ p: v.p, ng: v.ng, ns: v.ns }, v.neeSamples.point);
-        if (!li) continue;
-        const f = v.bsdf.eval(v.wo, li.wi, TransportMode.Radiance);
-        if (f.isBlack()) continue;
-        const blockedAt = occlusionPoint(this.scene.aggregate, { p: v.p, ng: v.ng }, li.pLight);
-        recorder.shadowRay({ depth: k, from: v.p, to: li.pLight.p, occluded: blockedAt !== null, blockedAt });
-        if (blockedAt !== null) continue;
-        const pLight = selected.pmf * li.pdf;
-        const pBsdf = v.bsdf.pdf(v.wo, li.wi, TransportMode.Radiance);
-        const weight = powerHeuristic(pLight, pBsdf);
-        L = L.add(v.beta.mul(f).mul(li.L).scale((absDot(li.wi, v.ns) / pLight) * weight));
-      }
+      L = L.add(
+        directLighting(this.scene, vertices, k, recorder, {
+          skipEmitterHit: (depth) => depth === 2 && !hit.delta,
+          skipNEE: (depth) => depth === 1,
+        }),
+      );
     }
     return L;
   }
