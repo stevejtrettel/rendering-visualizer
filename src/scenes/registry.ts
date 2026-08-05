@@ -329,3 +329,63 @@ export function emissiveNames(desc: SceneDescription): Set<string> {
       .map((p) => p.name),
   );
 }
+
+/**
+ * The same scene with every emissive quad shrunk about its own centre, at
+ * CONSTANT total emitted power.
+ *
+ * A Lambertian emitter radiates power proportional to L·A, so holding the
+ * product fixed means radiance scales as 1/area — halve the side, quadruple
+ * the radiance. Without that compensation shrinking the lamp just dims the
+ * room, and a figure about the lamp's SIZE turns into a figure about
+ * exposure.
+ *
+ * Measured on `cornell` (24², pt-nee, 256 spp, 2026-08-05): mean image
+ * luminance 0.39668 / 0.40054 / 0.39916 / 0.39807 at shrink 1 / 2 / 4 / 8 —
+ * flat to within 1% across a 64x change in area. Uncompensated, the same
+ * series falls 0.39668 -> 0.00622, i.e. exactly the area ratio.
+ *
+ * What DOES change is how findable the lamp is. Plain PT's chance of
+ * stumbling onto it falls with area: 9.20% / 2.53% / 0.73% / 0.15% over the
+ * same series, a 60x collapse — which is the whole content of "most paths
+ * report nothing".
+ */
+export function withLampShrunk(desc: SceneDescription, shrink: number): SceneDescription {
+  if (shrink === 1) return desc;
+  const k = shrink * shrink; // area fell by this, so radiance rises by it
+  return {
+    ...desc,
+    primitives: desc.primitives.map((p) => {
+      if (!p.emission || p.shape.kind !== 'quad') return p;
+      const { q, e1, e2 } = p.shape;
+      const centre = [
+        q[0] + (e1[0] + e2[0]) / 2,
+        q[1] + (e1[1] + e2[1]) / 2,
+        q[2] + (e1[2] + e2[2]) / 2,
+      ] as const;
+      const s = 1 / shrink;
+      const ne1 = [e1[0] * s, e1[1] * s, e1[2] * s] as [number, number, number];
+      const ne2 = [e2[0] * s, e2[1] * s, e2[2] * s] as [number, number, number];
+      return {
+        ...p,
+        shape: {
+          kind: 'quad',
+          q: [
+            centre[0] - ne1[0] / 2 - ne2[0] / 2,
+            centre[1] - ne1[1] / 2 - ne2[1] / 2,
+            centre[2] - ne1[2] / 2 - ne2[2] / 2,
+          ] as [number, number, number],
+          e1: ne1,
+          e2: ne2,
+        },
+        emission: {
+          radiance: [
+            p.emission.radiance[0] * k,
+            p.emission.radiance[1] * k,
+            p.emission.radiance[2] * k,
+          ] as [number, number, number],
+        },
+      };
+    }),
+  };
+}
