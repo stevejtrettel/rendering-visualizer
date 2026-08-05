@@ -40,15 +40,15 @@ export const INFO: Record<string, DemoInfo> = {
     section: 'Act 0 — the renderer',
   },
   'material-test': {
-    title: 'One material, on its own',
+    title: 'What a material looks like',
     blurb:
-      'The Cornell shell with a single sphere in the middle. Set its material in the panel, record it converging, change the material, record again — the takes cut together.',
+      'The same lone sphere, rendered. Set its material, record it converging, change it, record again — the takes cut together. The companion to material-properties, which shows how it SCATTERS rather than how it looks.',
     section: 'Act 0 — the renderer',
   },
-  'sample-swarm': {
-    title: 'Importance sampling, drawn',
+  'material-properties': {
+    title: 'What a material does',
     blurb:
-      "One pixel's paths, N at a time, thickness by throughput. Toggle between uniform and BSDF sampling and watch the lobe move from the weights into the ray density.",
+      'Rays scattering off one sphere, N at a time, thickness and colour by throughput. Change the material and the spray changes shape — and the uniform/importance toggle moves the lobe between the weights and the ray density.',
     section: 'Act 1 — one path',
   },
   'pixel-grid': {

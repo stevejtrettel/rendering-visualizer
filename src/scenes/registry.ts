@@ -231,14 +231,71 @@ const CAUSTIC_RING: SceneDescription = {
 // a parameter because the point is to change it — demos/material-test drives
 // this from the UI; the registry entry below is just a default so the scene
 // shows up in every other page's scene menu too.
+// Its own shell rather than CORNELL's: that one is deliberately ELONGATED
+// (13 deep, camera inside at z = 9.5) to leave room in front of the pinhole
+// for the image-plane figures. Here there is nothing to make room for, and
+// the long tunnel toward the viewer just pushes the object away and fills
+// the frame with empty floor. This box is 8.5 deep with the camera near the
+// front wall.
+// Sized to the object rather than to a room: the walls clear the sphere by
+// well under its own radius, so the frame is the material and nothing else.
+// Cornell's shell is the opposite on purpose — 13 deep, camera inside at
+// z = 9.5, leaving space in front of the pinhole for the image-plane
+// figures — and borrowing it here just filled the picture with empty floor.
+//
+// The one hard constraint is that the camera lives INSIDE the box (the
+// front wall is real to the renderer, only ghosted for three.js), so it
+// cannot back off to frame a large object. The sphere is sized against that
+// rather than the other way round.
+const MT_WHITE = { kind: 'lambert' as const, albedo: [0.73, 0.73, 0.73] as const };
+const MT_X = 1.3; // side walls at +-X
+const MT_TOP = 2.3;
+const MT_BACK = -1.1;
+const MT_FRONT = 2.8;
+const MT_DEPTH = MT_FRONT - MT_BACK;
+// RESTING on the floor: centre height == radius (Steve, 2026-08-04).
+//
+// It was floated at y = 1.15 before that, on the reasoning that a sphere in
+// contact with a surface has a hard contact shadow right where it meets it,
+// and that under a big soft light that shadow merges with everything near
+// the floor into one dark mass reading as a plinth rather than as shadow.
+// Kept here because it is the thing to check if the contact ever looks
+// wrong — but the mass that actually prompted it turned out to be the
+// phantom bead sphere the path tracer was baking at the world origin (see
+// src/viz/path-tubes.ts), not the shadow, so the reason for floating it
+// was largely a misdiagnosis.
+//
+// The light's radiance had been tuned partly around the floated sphere, on
+// the belief that floating lifted the room by about a third — so resting it
+// ought to darken things. MEASURED instead (48x48, pt-nee, 64 spp, this
+// conductor): resting mean luminance 0.4293 vs floating 0.4011, i.e. 7%
+// BRIGHTER, not darker. Radiance is therefore left at 3.6.
+//
+// The demo's default aim (pixelX 0.43, pixelY 0.58) still lands on
+// testObject, as does the whole column pixelY 0.40-0.75, so nothing
+// downstream needed re-aiming.
+const MT_BALL = { center: [0, 0.7, 0] as const, radius: 0.7 };
+
 export function materialTestScene(material: MaterialDescription): SceneDescription {
   return {
-    camera: CORNELL.camera,
+    camera: { eye: [0, 1.25, 2.4], lookAt: [0, 1.1, 0], up: [0, 1, 0], fovDegrees: 48 },
     primitives: [
-      ...CORNELL.primitives.filter((p) => p.name !== 'ball' && p.name !== 'ballBlue'),
+      { name: 'floor', shape: { kind: 'quad', q: [-MT_X, 0, MT_BACK], e1: [0, 0, MT_DEPTH], e2: [2 * MT_X, 0, 0] }, material: MT_WHITE },
+      { name: 'ceiling', shape: { kind: 'quad', q: [-MT_X, MT_TOP, MT_BACK], e1: [2 * MT_X, 0, 0], e2: [0, 0, MT_DEPTH] }, material: MT_WHITE },
+      { name: 'back', shape: { kind: 'quad', q: [-MT_X, 0, MT_BACK], e1: [2 * MT_X, 0, 0], e2: [0, MT_TOP, 0] }, material: MT_WHITE },
+      { name: 'left', shape: { kind: 'quad', q: [-MT_X, 0, MT_BACK], e1: [0, MT_TOP, 0], e2: [0, 0, MT_DEPTH] }, material: { kind: 'lambert', albedo: [0.65, 0.05, 0.05] } },
+      { name: 'right', shape: { kind: 'quad', q: [MT_X, 0, MT_BACK], e1: [0, 0, MT_DEPTH], e2: [0, MT_TOP, 0] }, material: { kind: 'lambert', albedo: [0.12, 0.45, 0.15] } },
+      // Ghosted for the three.js view, a real wall to the renderer.
+      { name: 'front', shape: { kind: 'quad', q: [-MT_X, 0, MT_FRONT], e1: [0, MT_TOP, 0], e2: [2 * MT_X, 0, 0] }, material: MT_WHITE, display: { ghost: true } },
+      // 1.6 square rather than 0.8: four times the area, so shadows soften,
+      // both tracers converge faster, and the room is ~40% brighter (measured
+      // mean 0.42 against 0.30). Radiance drops from 14 to 3.6 to pay for it —
+      // and again for the floated sphere, which stopped shadowing the floor
+      // directly beneath it and lifted the whole room by about a third.
+      { name: 'light', shape: { kind: 'quad', q: [-0.8, MT_TOP - 0.002, -0.8], e1: [1.6, 0, 0], e2: [0, 0, 1.6] }, material: { kind: 'lambert', albedo: [0, 0, 0] }, emission: { radiance: [3.6, 3.6, 3.6] } },
       {
         name: 'testObject',
-        shape: { kind: 'sphere', center: [0, 1.05, 0.1], radius: 1.05 },
+        shape: { kind: 'sphere', center: MT_BALL.center, radius: MT_BALL.radius },
         material,
       },
     ],

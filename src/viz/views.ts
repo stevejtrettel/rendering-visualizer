@@ -17,9 +17,14 @@ export interface VizView {
 const CORNELL_VIEW: VizView = { eye: [0, 2.8, 15.5], target: [0, 1.5, 1.0] };
 const OPEN_STAGE_VIEW: VizView = { eye: [7.5, 5.5, 13], target: [0, 1.2, 0] };
 const MATERIAL_ROW_VIEW: VizView = { eye: [4.5, 3.2, 11], target: [0, 0.8, 0] };
+// material-test is a SMALL box — 2.6 x 2.3 x 3.9, sized to the sphere rather
+// than to a room — so the vantage sits close. The Cornell one is ten units
+// out and would leave this scene a thumbnail in the middle of the frame.
+const MATERIAL_TEST_VIEW: VizView = { eye: [2.2, 2.9, 6.1], target: [0, 1.0, 0.4] };
 
 export function vizViewFor(name: string): VizView {
   if (name === 'open-stage') return OPEN_STAGE_VIEW;
   if (name === 'material-row') return MATERIAL_ROW_VIEW;
+  if (name === 'material-test') return MATERIAL_TEST_VIEW;
   return CORNELL_VIEW;
 }

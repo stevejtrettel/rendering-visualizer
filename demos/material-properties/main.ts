@@ -1,10 +1,15 @@
 /**
- * SHOWS: what importance sampling actually is, by drawing the samples.
+ * SHOWS: what a material DOES, by drawing the rays it scatters.
  *
- * One pixel, one primary ray, and the population of paths that pixel's
- * estimator draws. N are on screen at once; a few are retired and replaced
- * each refresh, so you watch the distribution being sampled rather than
- * looking at a finished picture of it.
+ * One sphere in the middle of the Cornell shell, one pixel aimed at it, and
+ * the population of paths that pixel's estimator draws. N are on screen at
+ * once; several are retired and replaced every frame, so the picture is the
+ * distribution being sampled rather than a tidy diagram of it.
+ *
+ * Change the material and the spray changes shape: a broad cosine fan for
+ * lambert, a tightening cone as conductor roughness falls, a single hard
+ * direction for a mirror, a split into reflected and refracted branches for
+ * glass. That is the BSDF, drawn by sampling it.
  *
  * A path's contribution is f·cos/pdf, and the density of rays IS pdf, so
  * those are the two factors of one estimator — and the `sampling` control
@@ -25,14 +30,15 @@
  * Thickness tracks throughput AT each point along the path, so a tube also
  * tapers as light is lost at successive bounces.
  *
- * Aim at a GGX surface (the gold ball in cornell-glass) to see a tight
- * lobe; aim at a wall for the broad cosine one.
+ * The scene is fixed on purpose — one object, nothing else to look at, so
+ * the only thing changing between takes is the material. Aim with the pixel
+ * sliders; the caption names the surface actually being hit.
  */
 
 import { createStage, createUI, C } from '@';
-import { SCENES, type SceneName } from '@/scenes/registry';
+import { materialTestScene } from '@/scenes/registry';
 import { vizViewFor } from '@/viz/views';
-import { buildScene, type Scene, type ScenePrimitive } from '@/core/scene/scene';
+import { buildScene, type MaterialDescription, type Scene, type SceneDescription, type ScenePrimitive } from '@/core/scene/scene';
 import { LinearAggregate } from '@/core/geometry/aggregate';
 import { UniformSamplingBxDF } from '@/core/materials/uniform-sampled';
 import { UnidirectionalPT } from '@/core/integrators/pt';
@@ -41,9 +47,10 @@ import { luminanceOf } from '@/core/math/color';
 import type { PathRecord, Tuple3 } from '@/trace/records';
 import { sceneToThree } from '@/viz/three-scene';
 import { PathTubes, type TubeEndpoint, type TubeSegment } from '@/viz/path-tubes';
-import { ramp } from '@/viz/style';
+
 import { swarmWindow } from '@/viz/path-swarm';
 import { label, setText } from '@/viz/text';
+import { BeautyPass } from '@/viz/beauty';
 import * as THREE from 'three';
 
 // --- Figure spec -----------------------------------------------------------
@@ -59,27 +66,50 @@ const MIN_RADIUS = 0.0015;
 const MAX_RADIUS = 0.018;
 // Bead marking where a path stopped, as a multiple of the last radius.
 const BEAD_SCALE = 2.2;
-// A 64-step lookup of the palette's cold->hot ramp. Built once: the ramp
-// helper allocates a THREE.Color, and this is read per segment per frame.
+// Colour schemes for the paths, all out of the talk's palette. Throughput
+// picks a position along whichever is selected, so colour and thickness
+// carry the same quantity and reinforce each other.
+const RAMPS = {
+  // Bright warm yellow throughout — ochre is the palette's colour for light
+  // itself. No dark end at all, which is the point: a ray that carried
+  // little energy is THIN, and does not also need to be invisible. Both
+  // ends stay SATURATED; running up to bone made them read as silver.
+  gold: [C.ochre, C.ochreLight],
+  // Warm with a dark end, so colour carries more of the range.
+  ember: [C.rustDeep, C.rust, C.ochre, C.bone],
+  // Cold to hot — the most quantitative, and the busiest.
+  heat: [C.blueDeep, C.blue, C.moss, C.ochre, C.rust],
+  // Cool: strongest contrast against a warm-lit box.
+  ice: [C.slateDeep, C.blueDeep, C.blue, C.bone],
+  // Achromatic: nothing competes with the scene's own colours.
+  bone: [C.slateDeep, C.ash, C.bone],
+} as const;
+type RampName = keyof typeof RAMPS;
+
+// A 64-step lookup, rebuilt only when the scheme changes: mixing allocates
+// a THREE.Color, and this is read per segment per frame.
 const RAMP_STEPS = 64;
-const RAMP = (() => {
-  const out = new Float32Array(RAMP_STEPS * 3);
+let RAMP = new Float32Array(RAMP_STEPS * 3);
+function buildRamp(name: RampName): void {
+  const stops = RAMPS[name];
   const c = new THREE.Color();
+  const a = new THREE.Color();
   for (let i = 0; i < RAMP_STEPS; i++) {
-    c.setHex(ramp(i / (RAMP_STEPS - 1)));
-    out[i * 3] = c.r;
-    out[i * 3 + 1] = c.g;
-    out[i * 3 + 2] = c.b;
+    const x = (i / (RAMP_STEPS - 1)) * (stops.length - 1);
+    const k = Math.min(stops.length - 2, Math.floor(x));
+    a.setHex(stops[k]!);
+    c.setHex(stops[k + 1]!).lerp(a, 1 - (x - k));
+    RAMP[i * 3] = c.r;
+    RAMP[i * 3 + 1] = c.g;
+    RAMP[i * 3 + 2] = c.b;
   }
-  return out;
-})();
+}
 // Ceiling on how many paths are traced up front. At high swap rates the
 // window would otherwise ask for tens of thousands and stall the page; past
 // this the pool simply wraps, which nobody can see when members are being
 // replaced every frame.
 const MAX_PATHS = 12000;
 
-const SCENE_NAMES = Object.keys(SCENES) as SceneName[];
 
 // --- Stage -----------------------------------------------------------------
 const stage = createStage({ position: [0, 2.8, 15.5], target: [0, 1.5, 1.0], fov: 42 });
@@ -98,9 +128,17 @@ const caption = label('', {
 stage.hud.add(caption);
 
 // --- Controls --------------------------------------------------------------
+type Kind = MaterialDescription['kind'];
+const KINDS: Kind[] = ['lambert', 'mirror', 'conductor', 'dielectric'];
+
 const params = {
-  scene: 'cornell' as SceneName,
+  kind: 'conductor' as Kind,
+  albedo: [0.75, 0.75, 0.78] as [number, number, number],
+  f0: [1.0, 0.77, 0.34] as [number, number, number],
+  roughness: 0.25,
+  ior: 1.5,
   sampling: 'bsdf' as 'bsdf' | 'uniform',
+  colour: 'gold' as RampName,
   bounces: 1,
   onScreen: 64,
   // Swapping several members every frame is what makes the population read
@@ -117,24 +155,157 @@ const params = {
   // flying to wherever it happens to hit. Equal-length stubs make the fan
   // read as density and thickness rather than as "how far it got", which is
   // the whole subject here. 0 restores the true segment.
-  stub: 2.2,
+  stub: 1.6,
   beads: true,
-  pixelX: 0.42,
-  pixelY: 0.62,
+  glow: 0.2,
+  rayRoughness: 0.35,
+  rayMetalness: 0,
+  pixelX: 0.43,
+  pixelY: 0.58,
+  // Path-trace each EXPORTED frame instead of rasterising it. The preview
+  // stays raster whatever this says — nothing that takes seconds a frame
+  // belongs in a live view — so turning it on changes only what V produces.
+  beauty: false,
+  beautySamples: 128,
+  beautyScale: 0.5,
+  beautyBounces: 8,
 };
 
-ui.params.add(params, 'scene', SCENE_NAMES).onChange(rebuild);
+ui.params.add(params, 'kind', KINDS).onChange(() => {
+  showRelevant();
+  rebuild();
+});
+const albedoC = ui.params.addColor(params, 'albedo').onChange(rebuild);
+const f0C = ui.params.addColor(params, 'f0').name('reflectance (f0)').onChange(rebuild);
+const roughC = ui.params.add(params, 'roughness', 0.005, 1, 0.005).onChange(rebuild);
+const iorC = ui.params.add(params, 'ior', 1.0, 2.6, 0.01).onChange(rebuild);
 ui.params.add(params, 'sampling', ['bsdf', 'uniform']).onChange(rebuild);
 ui.params.add(params, 'bounces', 1, 5, 1).name('bounces (k)').onChange(rebuild);
 ui.params.add(params, 'onScreen', 8, 256, 1).name('paths on screen').onChange(rebuild);
 ui.params.add(params, 'replace', 1, 64, 1).name('swapped per tick').onChange(rebuild);
 ui.params.add(params, 'rate', 1, 60, 1).name('ticks / second').onChange(rebuild);
+ui.params.add(params, 'colour', Object.keys(RAMPS)).name('path colour').onChange(() => buildRamp(params.colour));
 ui.params.add(params, 'gamma', 0.2, 1, 0.05).name('radius gamma');
 ui.params.add(params, 'thickness', 0.2, 3, 0.05).name('thickness');
 ui.params.add(params, 'stub', 0, 8, 0.1).name('last ray length');
 ui.params.add(params, 'beads').name('end markers');
+ui.params.add(params, 'glow', 0, 1, 0.05).name('ray glow').onChange(() => tubes?.setGlow(params.glow));
+const setSurface = () => tubes?.setSurface(params.rayRoughness, params.rayMetalness);
+ui.params.add(params, 'rayRoughness', 0.02, 1, 0.02).name('ray roughness').onChange(setSurface);
+ui.params.add(params, 'rayMetalness', 0, 1, 0.05).name('ray metalness').onChange(setSurface);
 ui.params.add(params, 'pixelX', 0, 1, 0.005).name('pixel x').onChange(rebuild);
 ui.params.add(params, 'pixelY', 0, 1, 0.005).name('pixel y').onChange(rebuild);
+const beautyFolder = ui.gui.addFolder('Path-traced export');
+beautyFolder.add(params, 'beauty').name('path trace on V').onChange(setBeauty);
+beautyFolder.add(params, 'beautySamples', 8, 2048, 8).name('samples / frame');
+beautyFolder.add(params, 'beautyScale', 0.25, 1, 0.05).name('render scale');
+beautyFolder.add(params, 'beautyBounces', 1, 16, 1).name('bounces');
+
+// Only the properties this kind actually has are shown, so the panel says
+// exactly what the material is.
+function showRelevant(): void {
+  albedoC.show(params.kind === 'lambert');
+  f0C.show(params.kind === 'mirror' || params.kind === 'conductor');
+  roughC.show(params.kind === 'conductor');
+  iorC.show(params.kind === 'dielectric');
+}
+showRelevant();
+
+const material = (): MaterialDescription => {
+  switch (params.kind) {
+    case 'lambert':
+      return { kind: 'lambert', albedo: params.albedo };
+    case 'mirror':
+      return { kind: 'mirror', f0: params.f0 };
+    case 'dielectric':
+      return { kind: 'dielectric', ior: params.ior };
+    case 'conductor':
+      return { kind: 'conductor', f0: params.f0, roughness: params.roughness };
+  }
+};
+
+const describe = (): string => {
+  switch (params.kind) {
+    case 'lambert':
+      return 'lambert';
+    case 'mirror':
+      return 'mirror';
+    case 'dielectric':
+      return `glass · ior ${params.ior.toFixed(2)}`;
+    case 'conductor':
+      return `metal · roughness ${params.roughness.toFixed(2)}`;
+  }
+};
+
+// A delta lobe has no density to replace, so UniformSamplingBxDF passes it
+// straight through and the sampling toggle genuinely does nothing. Say so
+// rather than let it look broken.
+const isDelta = (): boolean => params.kind === 'mirror' || params.kind === 'dielectric';
+
+// --- Path-traced export ----------------------------------------------------
+// The tubes are REPARENTED into the traced scene rather than copied, so the
+// export renders exactly the geometry the preview is showing — the same
+// MeshStandardMaterial, the same per-frame ray population.
+let beauty: BeautyPass | null = null;
+
+// Turning it on gives a LIVE converging preview, not just a different
+// export: you see the frame you are about to record. That means freezing
+// the swarm — the tracer accumulates into one image, and a population that
+// churned every frame would reset it before it ever converged.
+function setBeauty(): void {
+  if (!params.beauty) {
+    if (beauty && tubes) stage.scene.add(tubes.group); // hand the tubes back
+    beauty?.dispose();
+    beauty = null;
+    stage.renderWith(null);
+    stage.speed = 1;
+    return;
+  }
+  beauty = new BeautyPass(stage.renderer, stage.camera, {
+    bounces: params.beautyBounces,
+    samplesPerFrame: params.beautySamples,
+    renderScale: params.beautyScale,
+  });
+  stage.speed = 0; // hold this frame's rays still so samples can accumulate
+  syncBeauty();
+  stage.renderWith(() => {
+    beauty?.renderSample();
+    if (beauty) {
+      setText(
+        caption,
+        beauty.compiling
+          ? 'path tracer · compiling shaders (first run is slow)…'
+          : `path tracer · ${beauty.samples} samples · ${describe()}`,
+      );
+    }
+  });
+}
+
+/** Point the tracer at the current material and the current ray population. */
+function syncBeauty(): void {
+  if (!beauty || !tubes) return;
+  beauty.sync(materialTestScene(material()), tubes.group);
+}
+
+// Orbiting invalidates the accumulated image; the tracer needs telling.
+stage.controls?.addEventListener('change', () => beauty?.updateCamera());
+
+// Per EXPORTED frame: re-aim at this frame's tubes (the geometry changed,
+// so the BVH is rebuilt and accumulation resets) and converge. This is the
+// call that takes seconds, and the exporter simply waits for it.
+stage.beforeCapture(async () => {
+  if (!params.beauty || !beauty || !tubes) return;
+  beauty.setSampleTarget(params.beautySamples);
+  syncBeauty();
+  const t0 = performance.now();
+  await beauty.renderFrame((n, target) => {
+    setText(caption, `path tracing · ${n} / ${target} samples`);
+  });
+  console.log(
+    `[beauty] frame in ${((performance.now() - t0) / 1000).toFixed(1)}s · ` +
+      `${params.beautySamples} samples at scale ${params.beautyScale}`,
+  );
+});
 
 // --- Tracing ---------------------------------------------------------------
 // Swap every material for one that samples uniformly. The walk is
@@ -149,10 +320,12 @@ function uniformScene(scene: Scene): Scene {
 }
 
 let records: PathRecord[] = [];
+let aimedAt = '';
 let lastStep = -1;
 
 function rebuild(): void {
-  const base = buildScene(SCENES[params.scene], FILM, FILM);
+  const description = materialTestScene(material());
+  const base = buildScene(description, FILM, FILM);
   const scene = params.sampling === 'uniform' ? uniformScene(base) : base;
   // k bounces means k scattering events, so the walk needs one more vertex
   // to show the direction sampled at the last of them.
@@ -175,9 +348,14 @@ function rebuild(): void {
     seed: SEED,
   });
 
-  const view = vizViewFor(params.scene);
+  // Which surface the pixel actually landed on. Aiming by two sliders is
+  // otherwise pure guesswork, and a fan off the back wall looks plausible
+  // enough to mislead.
+  aimedAt = records[0]?.vertices[1]?.primitiveName ?? 'nothing';
+
+  const view = vizViewFor('material-test');
   if (sceneGroup) stage.scene.remove(sceneGroup);
-  sceneGroup = sceneToThree(SCENES[params.scene]);
+  sceneGroup = sceneToThree(description);
   stage.add(sceneGroup);
   const target = new THREE.Vector3(...view.target);
   stage.camera.position.copy(
@@ -193,6 +371,9 @@ function rebuild(): void {
     capacity: params.onScreen * (params.bounces + 1),
     endpointCapacity: params.onScreen,
     radialSegments: 6,
+    glow: params.glow,
+    roughness: params.rayRoughness,
+    metalness: params.rayMetalness,
   });
 
   stage.duration = DURATION;
@@ -233,8 +414,10 @@ function refresh(t: number): void {
   const endpoints: TubeEndpoint[] = [];
   visible.forEach((record, n) => {
     // Older members dim, so the churn reads as flow rather than flicker.
+    // Gently: the ramp's low end is already dark, and 60% off on top of it
+    // left the oldest half of the swarm effectively black.
     const age = visible.length > 1 ? 1 - n / (visible.length - 1) : 0;
-    const dim = 1 - 0.6 * age;
+    const dim = 1 - 0.3 * age;
     const last = record.vertices.length - 1;
     let tail: Tuple3 | null = null;
     let tailW = 0;
@@ -285,13 +468,21 @@ function refresh(t: number): void {
   });
   tubes?.set(segments);
   tubes?.setEndpoints(params.beads ? endpoints : []);
+  // The traced scene has to be re-aimed at the geometry that just changed.
+  // Populating happens here rather than in rebuild(), so syncing there
+  // would hand the tracer an empty buffer.
+  if (params.beauty) syncBeauty();
 
-  const lit = visible.filter((r) => r.contributions.some((c) => c.value.some((v) => v > 0))).length;
+  const sampling = isDelta()
+    ? 'delta lobe — sampling toggle has no effect'
+    : params.sampling === 'uniform'
+      ? 'uniform sampling'
+      : 'importance sampling';
+  const aim = aimedAt === 'testObject' ? '' : ` · aimed at ${aimedAt}`;
   setText(
     caption,
-    `${params.sampling === 'uniform' ? 'uniform sampling' : 'importance sampling'} · ` +
-      `${visible.length} paths · ${params.bounces} bounce${params.bounces === 1 ? '' : 's'} · ` +
-      `${lit} carried light`,
+    `${describe()} · ${sampling} · ` +
+      `${params.bounces} bounce${params.bounces === 1 ? '' : 's'}${aim}`,
   );
 }
 
@@ -302,5 +493,6 @@ stage.frame((t) => {
   refresh(t);
 });
 
+buildRamp(params.colour);
 stage.start();
 rebuild();

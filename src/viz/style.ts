@@ -38,6 +38,10 @@ export const C = {
   // Warm ochre. Light itself, emission, the sun, highlighted quantities.
   ochre: 0xd4a63f,
   ochreDeep: 0x8a6a22,
+  // The bright end, kept SATURATED rather than mixed toward bone: a ray
+  // that brightens toward white stops reading as light and starts reading
+  // as metal.
+  ochreLight: 0xf7d778,
 
   // The hot accent. Errors, variance, the thing you want the eye to land on.
   rust: 0xb2543a,

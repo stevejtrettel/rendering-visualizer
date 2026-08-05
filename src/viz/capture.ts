@@ -31,9 +31,18 @@ function canvasBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   );
 }
 
-/** Let the browser actually paint before we read pixels back. */
-function nextFrame(): Promise<void> {
-  return new Promise((r) => requestAnimationFrame(() => r()));
+/**
+ * Render and read back in ONE task.
+ *
+ * Without preserveDrawingBuffer the drawing buffer is cleared as soon as the
+ * browser composites, so anything that yields between the draw and the read
+ * — an await, a rAF — captures a blank canvas. toBlob snapshots at call
+ * time even though it delivers asynchronously, so this is safe as long as
+ * nothing yields in between.
+ */
+function renderAndRead(stage: Stage): Promise<Blob> {
+  stage.render();
+  return canvasBlob(stage.canvas);
 }
 
 /** Save a single PNG at full export resolution into out/stills/. */
@@ -43,9 +52,8 @@ export async function saveStill(stage: Stage, name: string): Promise<string> {
   await stage.settled();
   return stage.atExportSize(async () => {
     await textSettled();
-    stage.render();
-    await nextFrame();
-    const blob = await canvasBlob(stage.canvas);
+    await stage.captureReady();
+    const blob = await renderAndRead(stage);
     const res = await fetch(`/__shot?name=${encodeURIComponent(name)}`, {
       method: 'POST',
       body: blob,
@@ -96,9 +104,10 @@ export async function saveVideo(
         // Labels changed by that update are still laying out; wait for them,
         // then redraw, or the frame captures the previous frame's numbers.
         await textSettled();
-        stage.render();
-        await nextFrame();
-        const blob = await canvasBlob(stage.canvas);
+        // Anything the demo cannot draw in one call — a path tracer
+        // accumulating this frame's samples, say.
+        await stage.captureReady();
+        const blob = await renderAndRead(stage);
         const res = await fetch(`/__frame?name=${encodeURIComponent(name)}&i=${i}`, {
           method: 'POST',
           body: blob,

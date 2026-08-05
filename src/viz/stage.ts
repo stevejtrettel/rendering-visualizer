@@ -63,6 +63,8 @@ export class Stage {
 
   private frameFns: FrameFn[] = [];
   private readyFns: Array<() => Promise<void> | void> = [];
+  private captureFns: Array<() => Promise<void> | void> = [];
+  private renderFn: (() => void) | null = null;
   private _hud?: THREE.Scene;
   private _hudCamera?: THREE.OrthographicCamera;
   private orthoHeight: number;
@@ -92,8 +94,12 @@ export class Stage {
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
       antialias: true,
-      // Required so we can pull pixels out with toBlob() after the fact.
-      preserveDrawingBuffer: true,
+      // NOT preserveDrawingBuffer. It is a severe frame-rate hit on macOS
+      // ANGLE/Metal (banked in design-viz, 2026-08-02) and it taxes every
+      // frame of every page to serve export alone. Capture instead reads
+      // the canvas back in the SAME task as the render, before the browser
+      // composites and clears it — see viz/capture.ts.
+      preserveDrawingBuffer: false,
     });
     this.renderer.setClearColor(background, 1);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -158,6 +164,35 @@ export class Stage {
   /** Resolves once every onReady() registration has finished. */
   async settled(): Promise<void> {
     for (const fn of this.readyFns) await fn();
+  }
+
+  /**
+   * Register work the exporter must await BEFORE EVERY FRAME, once the
+   * clock has been set but before the pixels are read.
+   *
+   * onReady is once, for preparation. This is per frame, for a figure whose
+   * frame cannot be drawn in one call — a path tracer accumulating samples
+   * being the case it was added for. Live playback ignores these: nothing
+   * that takes seconds per frame belongs in a preview.
+   */
+  beforeCapture(fn: () => Promise<void> | void): this {
+    this.captureFns.push(fn);
+    return this;
+  }
+
+  /** Awaited by the exporter before reading each frame. */
+  async captureReady(): Promise<void> {
+    for (const fn of this.captureFns) await fn();
+  }
+
+  /**
+   * Replace what draws the main scene — a path tracer presenting its
+   * accumulated buffer, say. The HUD is still drawn on top afterwards, so
+   * captions and panels survive whatever the override does.
+   */
+  renderWith(fn: (() => void) | null): this {
+    this.renderFn = fn;
+    return this;
   }
 
   /** Shorthand for scene.add. */
@@ -232,7 +267,8 @@ export class Stage {
   }
 
   render(): void {
-    this.renderer.render(this.scene, this.camera);
+    if (this.renderFn) this.renderFn();
+    else this.renderer.render(this.scene, this.camera);
     if (this._hud && this._hudCamera) {
       // Draw the overlay without wiping the 3D image underneath it.
       const prevAutoClear = this.renderer.autoClear;

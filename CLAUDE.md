@@ -1,5 +1,8 @@
 # Working conventions
 
+**New here? Read `docs/ORIENTATION.md` first** — architecture, the demo
+system, how to verify visually, and what is currently open.
+
 **Plan first, always.** Never write code in this repo without a plan that has
 been discussed and agreed with Steve. Propose the design, discuss trade-offs,
 then implement. This applies to every feature, not just large ones.
