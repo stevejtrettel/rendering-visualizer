@@ -87,6 +87,21 @@ const ARROW_COLOR: Record<PathPalette, number> = { camera: C.ash, light: C.slate
 const SHADOW_OK = new THREE.Color(PATH_COLORS.connectionOk);
 const SHADOW_BLOCKED = new THREE.Color(PATH_COLORS.connectionBlocked);
 
+/**
+ * Per-segment override of the path language's defaults.
+ *
+ * The default mapping is THROUGHPUT: a segment's colour and width come from
+ * beta arriving at it, which says how much the path still carries but
+ * nothing about whether it ever delivered any of it. A figure that wants to
+ * show delivery instead computes its own appearance per segment and passes
+ * it here — see the `colour` control in demos/path-strategies.
+ */
+export interface SegmentAppearance {
+  color?: THREE.Color;
+  /** Replaces brightness(beta) in the width mapping; 0 is a hairline. */
+  weight?: number;
+}
+
 // One growing segment of the path, in either tier.
 class SegmentElement implements TimelineElement {
   private object: THREE.Object3D;
@@ -101,14 +116,16 @@ class SegmentElement implements TimelineElement {
     private readonly parent: THREE.Object3D,
     private readonly color?: THREE.Color,
     private readonly opacity = 1,
+    private readonly weight?: number,
   ) {
     const c = color ?? segmentColor(seg.betaLuminance, delta, style.palette ?? 'camera');
+    const w = weight ?? brightness(seg.betaLuminance);
     if (style.tier === 'lines') {
       this.lineGeometry = new LineGeometry();
       this.lineGeometry.setPositions([...seg.from, ...seg.from]);
       const material = new LineMaterial({
         color: c.getHex(),
-        linewidth: style.lineWidth * (0.5 + 0.5 * brightness(seg.betaLuminance)),
+        linewidth: style.lineWidth * (0.5 + 0.5 * w),
         transparent: opacity < 1,
         opacity,
       });
@@ -140,7 +157,8 @@ class SegmentElement implements TimelineElement {
       this.lineGeometry.setPositions([...this.seg.from, ...tip]);
     } else if (this.tube) {
       this.tube.geometry.dispose();
-      const radius = this.style.tubeRadius * (0.5 + 0.7 * brightness(this.seg.betaLuminance));
+      const radius =
+        this.style.tubeRadius * (0.5 + 0.7 * (this.weight ?? brightness(this.seg.betaLuminance)));
       this.tube.geometry = new THREE.TubeGeometry(
         new THREE.LineCurve3(v3(this.seg.from), v3(tip)), 1, radius, 8,
       );
@@ -377,10 +395,16 @@ export function pathElements(
   deltas: ReadonlyArray<boolean>, // per-vertex delta flags, indexed like vertices
   style: PathStyle,
   parent: THREE.Object3D,
+  // Optional per-segment override, indexed like schedule.segments. Absent
+  // entries fall back to the throughput mapping.
+  appearance?: ReadonlyArray<SegmentAppearance | null | undefined>,
 ): TimelineElement[] {
   const elements: TimelineElement[] = [];
   schedule.segments.forEach((seg, i) => {
-    elements.push(new SegmentElement(seg, deltas[i + 1] ?? false, style, parent));
+    const a = appearance?.[i];
+    elements.push(
+      new SegmentElement(seg, deltas[i + 1] ?? false, style, parent, a?.color, 1, a?.weight),
+    );
   });
   for (const m of schedule.moments) {
     elements.push(new MomentElement(m, style, parent));

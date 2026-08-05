@@ -22,11 +22,12 @@ import { SMSPathTracer } from '../core/integrators/pt-sms';
 import { BDPT } from '../core/integrators/bdpt';
 import { DEFAULT_WALK_OPTIONS } from '../core/integrators/walk';
 import type { Integrator } from '../core/integrators/types';
+import { uniformSampledScene } from '../core/materials/uniform-sampled';
 import { Film } from './film';
 import { renderPass } from './driver';
 import { MltRunner } from './mlt-driver';
 import { RestirRunner } from './restir-driver';
-import type { IntegratorName } from './protocol';
+import type { IntegratorDescription, IntegratorName } from './protocol';
 
 export interface DevelopedFrame {
   rgba: Uint8ClampedArray<ArrayBuffer>;
@@ -94,39 +95,80 @@ export function developFilm(
 
 // --- per-pixel integrators (pt, pt-term, pt-nee, pt-sms, bdpt) ---
 
-function makeIntegrator(name: IntegratorName, maxDepth: number | undefined): Integrator {
-  const depth = maxDepth !== undefined ? { maxBounces: maxDepth } : {};
-  switch (name) {
+// Drop the keys a description left undefined, so each integrator's own
+// defaults survive rather than being overwritten with `undefined`.
+function defined<T extends object>(o: T): Partial<T> {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
+}
+
+function makeIntegrator(spec: IntegratorDescription): Integrator {
+  switch (spec.name) {
     case 'bdpt':
-      return new BDPT(depth);
+      return new BDPT(
+        defined({
+          maxBounces: spec.maxBounces,
+          rrStartDepth: spec.rrStartDepth,
+          heuristic: spec.heuristic,
+        }),
+      );
     case 'pt-sms':
-      // Interactive panes run the UNBIASED estimator config: measured
-      // (design-v5 §V5b checkpoint-2 note) 7× cheaper per pass than the
-      // biased-M8 library default AND closer to reference (−1.1% vs −1.5%
-      // zone) — a failed first walk ends the estimate. A biased-M8 pass on
-      // cornell-glass at 320² is ~140 s, which reads as a dead pane.
-      return new SMSPathTracer({ estimator: 'unbiased', ...depth });
+      // Interactive panes run the UNBIASED estimator config by default:
+      // measured (design-v5 §V5b checkpoint-2 note) 7× cheaper per pass than
+      // the biased-M8 library default AND closer to reference (−1.1% vs
+      // −1.5% zone) — a failed first walk ends the estimate. A biased-M8
+      // pass on cornell-glass at 320² is ~140 s, which reads as a dead pane.
+      // It is a DEFAULT here rather than a hard override, so a figure that
+      // wants to show the ladder can ask for 'biasedM'.
+      return new SMSPathTracer({
+        estimator: 'unbiased',
+        ...defined({ maxBounces: spec.maxBounces, rrStartDepth: spec.rrStartDepth, estimator: spec.estimator }),
+      });
     case 'pt-nee':
-      return new NEEPathTracer(depth);
+      return new NEEPathTracer(defined({ maxBounces: spec.maxBounces, rrStartDepth: spec.rrStartDepth }));
     case 'pt-term':
-      return new SingleTermPT(depth);
+      return new SingleTermPT(
+        defined({ maxBounces: spec.maxBounces, continueProb: spec.continueProb }),
+      );
+    case 'pt':
+      return new UnidirectionalPT({
+        ...DEFAULT_WALK_OPTIONS,
+        ...defined({ maxBounces: spec.maxBounces, rrStartDepth: spec.rrStartDepth }),
+      });
     default:
-      return new UnidirectionalPT({ ...DEFAULT_WALK_OPTIONS, ...depth });
+      // mmlt and restir are not Integrators — createRenderer routes them to
+      // their own drivers before reaching here.
+      throw new Error(`makeIntegrator: ${spec.name} is driver-backed, not an Integrator`);
   }
+}
+
+/**
+ * The scene this estimator actually samples against. Uniform direction
+ * sampling is an estimator choice implemented as a material decorator, so
+ * this is the one seam where the two meet — the scene library stays
+ * untouched and every caller gets the behaviour for free.
+ */
+function sceneFor(spec: IntegratorDescription, scene: Scene): Scene {
+  return 'directions' in spec && spec.directions === 'uniform'
+    ? uniformSampledScene(scene)
+    : scene;
 }
 
 class IntegratorRenderer implements Renderer {
   private readonly integrator: Integrator;
   private readonly sampler: IndependentSampler;
 
+  private readonly name: IntegratorName;
+  private readonly scene: Scene;
+
   constructor(
-    private readonly name: IntegratorName,
-    private readonly scene: Scene,
+    spec: IntegratorDescription,
+    scene: Scene,
     private readonly film: Film,
     seed: number,
-    maxDepth: number | undefined,
   ) {
-    this.integrator = makeIntegrator(name, maxDepth);
+    this.name = spec.name;
+    this.scene = sceneFor(spec, scene);
+    this.integrator = makeIntegrator(spec);
     this.sampler = new IndependentSampler(seed);
   }
 
@@ -229,16 +271,21 @@ class RestirRenderer implements Renderer {
 
 export interface RendererOptions {
   seed: number;
-  maxDepth?: number;
 }
 
+/**
+ * Turn an estimator DESCRIPTION plus a live scene into a running renderer —
+ * the counterpart to `buildScene`, and the one place a description becomes
+ * objects. See `IntegratorDescription` in protocol.ts for why the estimator
+ * is described rather than named.
+ */
 export function createRenderer(
-  name: IntegratorName,
+  spec: IntegratorDescription,
   scene: Scene,
   film: Film,
   options: RendererOptions,
 ): Renderer {
-  if (name === 'mmlt') return new MltRenderer(film, scene, options.seed, options.maxDepth);
-  if (name === 'restir') return new RestirRenderer(film, scene, options.seed, options.maxDepth);
-  return new IntegratorRenderer(name, scene, film, options.seed, options.maxDepth);
+  if (spec.name === 'mmlt') return new MltRenderer(film, scene, options.seed, spec.maxBounces);
+  if (spec.name === 'restir') return new RestirRenderer(film, scene, options.seed, spec.maxBounces);
+  return new IntegratorRenderer(spec, scene, film, options.seed);
 }

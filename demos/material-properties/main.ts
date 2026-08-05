@@ -40,7 +40,7 @@ import { materialTestScene } from '@/scenes/registry';
 import { vizViewFor } from '@/viz/views';
 import { buildScene, type MaterialDescription, type Scene, type SceneDescription, type ScenePrimitive } from '@/core/scene/scene';
 import { LinearAggregate } from '@/core/geometry/aggregate';
-import { UniformSamplingBxDF } from '@/core/materials/uniform-sampled';
+import { uniformSampledScene } from '@/core/materials/uniform-sampled';
 import { UnidirectionalPT } from '@/core/integrators/pt';
 import { tracePaths } from '@/trace/replay';
 import { luminanceOf } from '@/core/math/color';
@@ -308,17 +308,6 @@ stage.beforeCapture(async () => {
 });
 
 // --- Tracing ---------------------------------------------------------------
-// Swap every material for one that samples uniformly. The walk is
-// untouched: it multiplies throughput by f·|cos|/pdf from whatever the
-// BxDF reports, so the estimator stays correct and only its variance moves.
-function uniformScene(scene: Scene): Scene {
-  const primitives: ScenePrimitive[] = scene.primitives.map((p) => ({
-    ...p,
-    bxdf: new UniformSamplingBxDF(p.bxdf),
-  }));
-  return { ...scene, primitives, aggregate: new LinearAggregate(primitives) };
-}
-
 let records: PathRecord[] = [];
 let aimedAt = '';
 let lastStep = -1;
@@ -326,7 +315,7 @@ let lastStep = -1;
 function rebuild(): void {
   const description = materialTestScene(material());
   const base = buildScene(description, FILM, FILM);
-  const scene = params.sampling === 'uniform' ? uniformScene(base) : base;
+  const scene = params.sampling === 'uniform' ? uniformSampledScene(base) : base;
   // k bounces means k scattering events, so the walk needs one more vertex
   // to show the direction sampled at the last of them.
   const integrator = new UnidirectionalPT({

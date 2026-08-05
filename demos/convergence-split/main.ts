@@ -22,7 +22,7 @@
 import { createStage, createUI, C } from '@';
 import { SCENES, type SceneName } from '@/scenes/registry';
 import type { SceneDescription } from '@/core/scene/scene';
-import type { IntegratorName } from '@/render/protocol';
+import { describeIntegrator, type IntegratorName } from '@/render/protocol';
 import { FilmPanel } from '@/viz/film-panel';
 import { ConvergenceComparison, type SyncMode } from '@/render/comparison';
 import { msSchedule, sppSchedule, type Pacing } from '@/render/convergence';
@@ -168,8 +168,8 @@ stage.frame((t) => {
   [sppA, sppB].forEach((spp, side) => {
     const rgba = seqs[side]!.at(spp);
     if (rgba) panels![side]!.update(rgba);
-    const unit = comparison!.tracers[side] === 'mmlt' ? 'mutation' : 'sample';
-    setText(sideLabels[side]!, `${comparison!.tracers[side]} · ${spp} ${unit}${spp === 1 ? '' : 's'}`);
+    const unit = comparison!.tracers[side]!.name === 'mmlt' ? 'mutation' : 'sample';
+    setText(sideLabels[side]!, `${comparison!.tracers[side]!.name} · ${spp} ${unit}${spp === 1 ? '' : 's'}`);
   });
   setText(
     status,
@@ -215,12 +215,11 @@ function restart(): void {
   setText(status, `${left} vs ${right} · ${scene} · rendering…`);
   ready = ConvergenceComparison.render({
     description: SCENES[scene],
-    tracers: [left, right],
+    tracers: [describeIntegrator(left, MAX_DEPTH), describeIntegrator(right, MAX_DEPTH)],
     width: size.width,
     height: size.height,
     maxSpp: MAX_SPP,
     seed: SEED,
-    maxDepth: MAX_DEPTH,
     signal: controller.signal,
     onProgress: ({ side, tracer, spp, maxSpp, rgba }) => {
       if (gen !== generation) return;

@@ -5,7 +5,7 @@
 // equal-TIME comparison built on contended timings is not a measurement of
 // anything. It costs twice the wall clock and buys a number you can quote.
 import type { SceneDescription } from '../core/scene/scene';
-import type { IntegratorName } from './protocol';
+import type { IntegratorDescription, IntegratorName } from './protocol';
 import { ConvergenceSequence } from './convergence';
 
 /** How the two sides are held level against each other. */
@@ -19,12 +19,11 @@ export type SyncMode =
 
 export interface ComparisonOptions {
   description: SceneDescription;
-  tracers: readonly [IntegratorName, IntegratorName];
+  tracers: readonly [IntegratorDescription, IntegratorDescription];
   width: number;
   height: number;
   maxSpp: number;
   seed?: number;
-  maxDepth?: number;
   signal?: AbortSignal;
   onProgress?: (status: {
     side: 0 | 1;
@@ -38,7 +37,7 @@ export interface ComparisonOptions {
 
 export class ConvergenceComparison {
   private constructor(
-    readonly tracers: readonly [IntegratorName, IntegratorName],
+    readonly tracers: readonly [IntegratorDescription, IntegratorDescription],
     readonly a: ConvergenceSequence,
     readonly b: ConvergenceSequence,
   ) {}
@@ -69,7 +68,7 @@ export class ConvergenceComparison {
         ...(onProgress
           ? {
               onProgress: (s) =>
-                onProgress({ side, tracer: tracers[side], ...s }),
+                onProgress({ side, tracer: tracers[side].name, ...s }),
             }
           : {}),
       });

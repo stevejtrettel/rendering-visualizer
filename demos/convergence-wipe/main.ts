@@ -20,7 +20,7 @@
 import { createStage, createUI, C } from '@';
 import { SCENES, type SceneName } from '@/scenes/registry';
 import type { SceneDescription } from '@/core/scene/scene';
-import type { IntegratorName } from '@/render/protocol';
+import { describeIntegrator, type IntegratorName } from '@/render/protocol';
 import { WipePanel } from '@/viz/wipe-panel';
 import { ASPECT } from '@/viz/stage';
 import { ConvergenceComparison, type SyncMode } from '@/render/comparison';
@@ -198,9 +198,9 @@ stage.frame((t) => {
   const b = comparison.b.at(sppB);
   if (a) panel.updateA(a);
   if (b) panel.updateB(b);
-  const unit = (n: 0 | 1) => (comparison!.tracers[n] === 'mmlt' ? 'mutations' : 'samples');
-  setText(sideLabels[0]!, `${comparison.tracers[0]} · ${sppA} ${unit(0)}`);
-  setText(sideLabels[1]!, `${comparison.tracers[1]} · ${sppB} ${unit(1)}`);
+  const unit = (n: 0 | 1) => (comparison!.tracers[n].name === 'mmlt' ? 'mutations' : 'samples');
+  setText(sideLabels[0]!, `${comparison.tracers[0].name} · ${sppA} ${unit(0)}`);
+  setText(sideLabels[1]!, `${comparison.tracers[1].name} · ${sppB} ${unit(1)}`);
   setText(
     status,
     params.sync === 'time'
@@ -245,12 +245,11 @@ function restart(): void {
   setText(status, `${left} vs ${right} · ${scene} · rendering…`);
   ready = ConvergenceComparison.render({
     description: SCENES[scene],
-    tracers: [left, right],
+    tracers: [describeIntegrator(left, MAX_DEPTH), describeIntegrator(right, MAX_DEPTH)],
     width: size.width,
     height: size.height,
     maxSpp: MAX_SPP,
     seed: SEED,
-    maxDepth: MAX_DEPTH,
     signal: controller.signal,
     onProgress: ({ side, tracer, spp, maxSpp, rgba }) => {
       if (gen !== generation) return;

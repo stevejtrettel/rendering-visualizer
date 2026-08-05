@@ -29,7 +29,7 @@
 import { createStage, createUI, C } from '@';
 import { SCENES, type SceneName } from '@/scenes/registry';
 import type { SceneDescription } from '@/core/scene/scene';
-import type { IntegratorName } from '@/render/protocol';
+import type { IntegratorDescription } from '@/render/protocol';
 import { FilmPanel } from '@/viz/film-panel';
 import { ConvergenceSequence, sppSchedule, type Pacing } from '@/render/convergence';
 import { label, setText } from '@/viz/text';
@@ -50,7 +50,38 @@ const HOLD_END = 1.8; // seconds on the converged image
 const STEPS: number | undefined = undefined;
 
 const SCENE_NAMES = Object.keys(SCENES) as SceneName[];
-const TRACERS: IntegratorName[] = ['pt', 'pt-term', 'pt-nee', 'pt-sms', 'bdpt', 'mmlt', 'restir'];
+
+// What you can record, as ONE choice — ordered naive to sophisticated.
+//
+// Naivety has two independent axes: how directions are chosen, and how the
+// path's length is decided. They are different KINDS of thing underneath (a
+// material decorator versus a genuinely different estimator class), which is
+// why IntegratorDescription keeps them apart — but that is the renderer's
+// business, not the operator's. Assembling a tracer out of two dropdowns
+// made a preset into a puzzle, so the presets are named here instead.
+//
+//   pt-naive  uniform directions AND an up-front path-length draw — naive on
+//             both axes at once. Measured 0.66 sigma from `pt` on cornell
+//             (the same integral, as an unbiased estimator must be) at 2.19x
+//             the noise and ~2x the cost per sample: a ~10x equal-time gap.
+//   pt        the standard tracer: importance-sampled, roulette on.
+//   the rest  the ladder, in the order the talk climbs it.
+//
+// The half-naive rungs (uniform directions alone; the length draw alone) are
+// deliberately NOT here — they are a decomposition for a variance argument,
+// not a figure. Either is one line if a slide ever wants it:
+// { name: 'pt', directions: 'uniform' } or { name: 'pt-term' }.
+const TRACERS: Record<string, IntegratorDescription> = {
+  'pt-naive': { name: 'pt-term', maxBounces: MAX_DEPTH, directions: 'uniform' },
+  pt: { name: 'pt', maxBounces: MAX_DEPTH },
+  'pt-nee': { name: 'pt-nee', maxBounces: MAX_DEPTH },
+  'pt-sms': { name: 'pt-sms', maxBounces: MAX_DEPTH },
+  bdpt: { name: 'bdpt', maxBounces: MAX_DEPTH },
+  mmlt: { name: 'mmlt', maxBounces: MAX_DEPTH },
+  restir: { name: 'restir', maxBounces: MAX_DEPTH },
+};
+type TracerName = keyof typeof TRACERS;
+const TRACER_NAMES = Object.keys(TRACERS);
 
 // Only `material-row` is authored for a non-square film (registry.ts).
 const filmSize = (scene: SceneName): { width: number; height: number } =>
@@ -70,8 +101,8 @@ const filmSize = (scene: SceneName): { width: number; height: number } =>
 // identically zero and direct lighting at the primary vertex vanishes.
 // Measured at ~0.42x NEE. Recorded in docs/design-cleanup.md §7.
 const hasDeltaLight = (d: SceneDescription): boolean => (d.pointLights?.length ?? 0) > 0;
-const unsupported = (scene: SceneName, tracer: IntegratorName): string | null =>
-  hasDeltaLight(SCENES[scene]) && tracer === 'restir'
+const unsupported = (scene: SceneName, tracer: TracerName): string | null =>
+  hasDeltaLight(SCENES[scene]) && TRACERS[tracer]!.name === 'restir'
     ? `restir has no delta-light support (reservoir target is zero) — ${scene} needs another tracer`
     : null;
 
@@ -106,12 +137,16 @@ function ensurePanel(width: number, height: number): FilmPanel {
 // --- Controls --------------------------------------------------------------
 const params = {
   scene: 'cornell' as SceneName,
-  tracer: 'pt-nee' as IntegratorName,
+  tracer: 'pt-nee' as TracerName,
   pacing: 'log' as Pacing,
   maxSpp: MAX_SPP,
   holdStart: HOLD_START,
   holdEnd: HOLD_END,
 };
+
+// The preset names itself, so a recorded clip says what it is.
+const integratorSpec = (): IntegratorDescription => TRACERS[params.tracer]!;
+const tracerLabel = (): string => String(params.tracer);
 
 let schedule: number[] = [];
 let scheduledFor = -1; // the stage duration this schedule was built for
@@ -130,7 +165,7 @@ function rebuildSchedule(): void {
 // Scene and tracer change WHAT is rendered, so they re-trace; the rest only
 // change how the finished sequence is paced, so they take effect instantly.
 ui.params.add(params, 'scene', SCENE_NAMES).onChange(restart);
-ui.params.add(params, 'tracer', TRACERS).onChange(restart);
+ui.params.add(params, 'tracer', TRACER_NAMES).onChange(restart);
 ui.params.add(params, 'pacing', ['log', 'linear', 'sqrt']).onChange(rebuildSchedule);
 ui.params.add(params, 'maxSpp', 1, MAX_SPP, 1).name('up to (spp)').onChange(rebuildSchedule);
 ui.params.add(params, 'holdStart', 0, 5, 0.1).name('hold first (s)').onChange(rebuildSchedule);
@@ -152,7 +187,7 @@ stage.frame((t) => {
   // MMLT spends mutations, not independent samples; calling them "samples"
   // would misdescribe what the number counts.
   const unit = params.tracer === 'mmlt' ? 'mutation' : 'sample';
-  setText(caption, `${params.tracer} · ${spp} ${unit}${spp === 1 ? '' : 's'} per pixel`);
+  setText(caption, `${tracerLabel()} · ${spp} ${unit}${spp === 1 ? '' : 's'} per pixel`);
 });
 
 // --- Tracing ---------------------------------------------------------------
@@ -189,22 +224,21 @@ function restart(): void {
 
   progress.visible = true;
   progress.set(0);
-  setText(caption, `${tracer} · ${scene} · rendering…`);
+  setText(caption, `${tracerLabel()} · ${scene} · rendering…`);
   ready = ConvergenceSequence.render({
     description,
-    integrator: tracer,
+    integrator: integratorSpec(),
     width: size.width,
     height: size.height,
     maxSpp: MAX_SPP,
     seed: SEED,
-    maxDepth: MAX_DEPTH,
     signal: controller.signal,
     onProgress: ({ spp, maxSpp, msPerPass, rgba }) => {
       if (gen !== generation) return;
       panel?.update(rgba);
       progress.visible = true;
       progress.set(spp / maxSpp);
-      setText(caption, `${tracer} · rendering ${spp} / ${maxSpp} · ${msPerPass.toFixed(0)} ms/pass`);
+      setText(caption, `${tracerLabel()} · rendering ${spp} / ${maxSpp} · ${msPerPass.toFixed(0)} ms/pass`);
     },
   })
     .then((seq) => {

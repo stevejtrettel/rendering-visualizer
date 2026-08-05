@@ -113,11 +113,10 @@ stage.hud.add(caption);
 const rendered = new Promise<void>((resolve) => {
   new RenderSession({
     description,
-    integrator: 'pt-nee',
+    integrator: { name: 'pt-nee', maxBounces: MAX_BOUNCES },
     width: RENDER_RES,
     height: RENDER_RES,
     targetSpp: TARGET_SPP,
-    maxDepth: MAX_BOUNCES,
     onUpdate: (s) => {
       panel.update(s.rgba);
       caption.text = `pt-nee · ${s.spp} spp · ${s.msPerPass.toFixed(0)} ms/pass`;

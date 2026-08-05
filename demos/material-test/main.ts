@@ -24,7 +24,7 @@
 import { createStage, createUI, C } from '@';
 import { materialTestScene } from '@/scenes/registry';
 import type { MaterialDescription } from '@/core/scene/scene';
-import type { IntegratorName } from '@/render/protocol';
+import { describeIntegrator, type IntegratorName } from '@/render/protocol';
 import { FilmPanel } from '@/viz/film-panel';
 import { ProgressBar } from '@/viz/progress-bar';
 import { ConvergenceSequence, sppSchedule, type Pacing } from '@/render/convergence';
@@ -184,12 +184,11 @@ function restart(): void {
 
   ready = ConvergenceSequence.render({
     description: materialTestScene(material()),
-    integrator: params.tracer,
+    integrator: describeIntegrator(params.tracer, MAX_DEPTH),
     width: RES,
     height: RES,
     maxSpp: MAX_SPP,
     seed: SEED,
-    maxDepth: MAX_DEPTH,
     signal: controller.signal,
     onProgress: ({ spp, maxSpp, msPerPass, rgba }) => {
       if (gen !== generation) return;

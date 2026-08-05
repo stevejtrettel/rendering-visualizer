@@ -51,6 +51,12 @@ export const INFO: Record<string, DemoInfo> = {
       'Rays scattering off one sphere, N at a time, thickness and colour by throughput. Change the material and the spray changes shape — and the uniform/importance toggle moves the lobe between the weights and the ray density.',
     section: 'Act 1 — one path',
   },
+  'path-strategies': {
+    title: 'What a strategy does',
+    blurb:
+      'One pixel, one strategy, every ray it casts — shadow rays and BDPT connections included. Successive samples run in turn over the dimmed remains of the last, so the fan of attempts builds up. Sharpest at sample 0: PT finds nothing, NEE carries light home immediately.',
+    section: 'Act 1 — one path',
+  },
   'pixel-grid': {
     title: 'An image being computed',
     blurb:

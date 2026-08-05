@@ -7,7 +7,7 @@
 // this when a figure wants several images side by side (which is most of
 // them: comparison panes are the house style).
 import type { SceneDescription } from '../core/scene/scene';
-import type { IntegratorName, MainToWorker, PassDoneMessage } from './protocol';
+import type { IntegratorDescription, MainToWorker, PassDoneMessage } from './protocol';
 
 export interface RenderStatus {
   spp: number; // MMLT: mutations per pixel
@@ -27,12 +27,11 @@ export interface RenderSessionOptions {
   // stage (DOM canvases do not appear in exported PNGs or video).
   canvas?: HTMLCanvasElement;
   description: SceneDescription;
-  integrator: IntegratorName;
+  integrator: IntegratorDescription;
   width: number;
   height: number;
   targetSpp: number;
   seed?: number;
-  maxDepth?: number;
   // Which frame to blit: the image, or the false-color relative-standard-
   // error view. Switchable at any time; takes effect on the next pass.
   view?: 'image' | 'error';
@@ -66,7 +65,7 @@ export class RenderSession {
   }
 
   private start(description: SceneDescription): void {
-    const { width, height, integrator, seed, maxDepth } = this.opts;
+    const { width, height, integrator, seed } = this.opts;
     this.post({
       type: 'init',
       description,
@@ -74,7 +73,6 @@ export class RenderSession {
       height,
       seed: seed ?? 0,
       integrator,
-      ...(maxDepth !== undefined ? { maxDepth } : {}),
     });
     this.post({ type: 'pass', sampleIndex: 0 });
   }
@@ -102,7 +100,7 @@ export class RenderSession {
   // integrator. Any in-flight pass is discarded by the counter reset.
   restart(
     description: SceneDescription = this.opts.description,
-    overrides: Partial<Pick<RenderSessionOptions, 'integrator' | 'targetSpp' | 'maxDepth'>> = {},
+    overrides: Partial<Pick<RenderSessionOptions, 'integrator' | 'targetSpp'>> = {},
   ): void {
     this.opts = { ...this.opts, description, ...overrides };
     this.totalMillis = 0;

@@ -6,7 +6,7 @@
 // intermediate merges contain whichever passes have arrived — timing-
 // dependent but statistically equivalent).
 import type { SceneDescription } from '../core/scene/scene';
-import type { FilmPassMessage, InitMessage, IntegratorName, WorkerToMain } from './protocol';
+import type { FilmPassMessage, InitMessage, IntegratorDescription, WorkerToMain } from './protocol';
 import { developFilm, passesAreExchangeable, type DevelopedFrame } from './renderer';
 import { Film } from './film';
 
@@ -26,9 +26,7 @@ export interface PoolOptions {
   width: number;
   height: number;
   seed: number;
-  integrator: IntegratorName;
-  // Shared depth cap forwarded to every worker (see protocol.ts).
-  maxDepth?: number;
+  integrator: IntegratorDescription;
   // Stop scheduling when total spp reaches maxSpp, or (if set) when wall
   // time since restart exceeds maxMillis — whichever the comparison
   // protocol fixes. In-flight passes still land (labels stay honest).
@@ -52,7 +50,7 @@ export class WorkerPool {
   // alone — read off the algorithm rather than set by hand at every call
   // site, which is what the old `activeWorkers` option required.
   private get active(): number {
-    return passesAreExchangeable(this.opts.integrator) ? this.opts.size : 1;
+    return passesAreExchangeable(this.opts.integrator.name) ? this.opts.size : 1;
   }
 
   constructor(opts: PoolOptions) {
@@ -89,7 +87,6 @@ export class WorkerPool {
         height: this.opts.height,
         seed: this.opts.seed,
         integrator: this.opts.integrator,
-        ...(this.opts.maxDepth !== undefined ? { maxDepth: this.opts.maxDepth } : {}),
         epoch: this.epoch,
         reply: 'film',
       };
@@ -130,7 +127,7 @@ export class WorkerPool {
       totalSpp,
       wallMillis: performance.now() - this.startTime,
       film: this.merged,
-      frame: () => developFilm(integrator, this.merged, totalSpp, splatNorm),
+      frame: () => developFilm(integrator.name, this.merged, totalSpp, splatNorm),
     });
   }
 

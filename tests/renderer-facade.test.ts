@@ -15,7 +15,7 @@ import { renderPass } from '../src/render/driver';
 import { MltRunner } from '../src/render/mlt-driver';
 import { RestirRunner } from '../src/render/restir-driver';
 import { createRenderer, passesAreExchangeable } from '../src/render/renderer';
-import type { IntegratorName } from '../src/render/protocol';
+import { describeIntegrator, type IntegratorName } from '../src/render/protocol';
 
 const BOX: SceneDescription = {
   camera: { eye: [0, 2, 7.2], lookAt: [0, 2, 0], up: [0, 1, 0], fovDegrees: 40 },
@@ -39,7 +39,7 @@ const scene = (): Scene => buildScene(BOX, SIZE, SIZE);
 
 function viaFacade(name: IntegratorName): Film {
   const film = new Film(SIZE, SIZE);
-  const renderer = createRenderer(name, scene(), film, { seed: SEED, maxDepth: DEPTH });
+  const renderer = createRenderer(describeIntegrator(name, DEPTH), scene(), film, { seed: SEED });
   for (let p = 0; p < PASSES; p++) renderer.pass(p);
   return film;
 }
@@ -66,7 +66,7 @@ describe('the Renderer facade drives each model exactly as its driver does', () 
     const facade = viaFacade('bdpt');
     expectSameFilm(facade, film);
     // BDPT's t = 1 splats average over passes, so splatScale = 1/spp.
-    const renderer = createRenderer('bdpt', scene(), new Film(SIZE, SIZE), { seed: SEED });
+    const renderer = createRenderer({ name: 'bdpt' }, scene(), new Film(SIZE, SIZE), { seed: SEED });
     expect(renderer.splatNorm()).toBe(1);
   });
 
@@ -86,8 +86,8 @@ describe('the Renderer facade drives each model exactly as its driver does', () 
 
     // splatScale = splatNorm / totalPasses must reproduce the bootstrap
     // normalization b over the mutations per pixel actually spent.
-    const renderer = createRenderer('mmlt', scene(), new Film(SIZE, SIZE), {
-      seed: SEED, maxDepth: DEPTH,
+    const renderer = createRenderer({ name: 'mmlt', maxBounces: DEPTH }, scene(), new Film(SIZE, SIZE), {
+      seed: SEED,
     });
     const expected = (runner.b * nPixels) / (chainsPerBatch * mutationsPerChain);
     expect(renderer.splatNorm()).toBeCloseTo(expected, 12);

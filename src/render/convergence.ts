@@ -10,7 +10,7 @@
 // the content — pass k would land in a different merge on every run. One
 // worker delivers spp = 1, 2, 3, … in order, so exports are reproducible.
 import type { SceneDescription } from '../core/scene/scene';
-import type { IntegratorName } from './protocol';
+import type { IntegratorDescription, IntegratorName } from './protocol';
 import { RenderSession } from './session';
 
 /** How movie time is spent across the sample range. */
@@ -117,12 +117,11 @@ export function sppSchedule(options: ScheduleOptions): number[] {
 
 export interface ConvergenceOptions {
   description: SceneDescription;
-  integrator: IntegratorName;
+  integrator: IntegratorDescription;
   width: number;
   height: number;
   maxSpp: number;
   seed?: number;
-  maxDepth?: number;
   /** Also keep the false-colour error view. Doubles the memory. */
   keepError?: boolean;
   /** Only these spp are kept; defaults to every one. */
@@ -254,7 +253,6 @@ export class ConvergenceSequence {
           height: options.height,
           targetSpp: maxSpp,
           ...(options.seed !== undefined ? { seed: options.seed } : {}),
-          ...(options.maxDepth !== undefined ? { maxDepth: options.maxDepth } : {}),
           onUpdate: (s) => {
             if (signal?.aborted) return;
             if (!wanted || wanted.has(s.spp)) {

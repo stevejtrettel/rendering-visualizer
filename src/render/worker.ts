@@ -24,10 +24,7 @@ self.onmessage = (event: MessageEvent<MainToWorker>) => {
   if (msg.type === 'init') {
     const scene = buildScene(msg.description, msg.width, msg.height);
     film = new Film(msg.width, msg.height);
-    renderer = createRenderer(msg.integrator, scene, film, {
-      seed: msg.seed,
-      ...(msg.maxDepth !== undefined ? { maxDepth: msg.maxDepth } : {}),
-    });
+    renderer = createRenderer(msg.integrator, scene, film, { seed: msg.seed });
     epoch = msg.epoch ?? 0;
     replyMode = msg.reply ?? 'rgba';
     passesDone = 0;

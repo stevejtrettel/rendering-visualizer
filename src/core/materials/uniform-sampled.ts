@@ -23,6 +23,8 @@ import {
   uniformSampleHemisphere,
   type Sample2D,
 } from '../math/sampling';
+import { LinearAggregate } from '../geometry/aggregate';
+import type { Scene, ScenePrimitive } from '../scene/scene';
 import { isSpecular, type BSDFFlags, type BSDFSample, type BxDF, type TransportMode } from './bsdf';
 
 export class UniformSamplingBxDF implements BxDF {
@@ -59,4 +61,28 @@ export class UniformSamplingBxDF implements BxDF {
     if (isSpecular(this.inner.flags)) return this.inner.pdf(wo, wi, mode);
     return wo.z * wi.z > 0 ? UNIFORM_HEMISPHERE_PDF : 0;
   }
+}
+
+/**
+ * The same scene, with every material sampled uniformly instead of by its
+ * own lobe. Unbiased — it estimates the identical integral, with the lobe
+ * moved out of the density and into the weight (see the class above).
+ *
+ * This lives here rather than in a demo (where it began, 2026-08-04)
+ * because a decorator can only be applied to a LIVE scene, i.e. after
+ * buildScene — and buildScene runs inside the render worker. A demo-local
+ * copy was therefore reachable only by pages that trace on the main thread,
+ * which is why `convergence` could select `pt-term` but could not render a
+ * uniformly-sampled image at all.
+ *
+ * Specular materials are unaffected: a delta lobe has no density to
+ * replace, so the wrapper passes them straight through. On a scene whose
+ * interest is glass or mirrors, this changes very little.
+ */
+export function uniformSampledScene(scene: Scene): Scene {
+  const primitives: ScenePrimitive[] = scene.primitives.map((p) => ({
+    ...p,
+    bxdf: new UniformSamplingBxDF(p.bxdf),
+  }));
+  return { ...scene, primitives, aggregate: new LinearAggregate(primitives) };
 }
