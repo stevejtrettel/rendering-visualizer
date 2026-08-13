@@ -5,15 +5,57 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# This file is the canonical copy. `node scripts/add-pages.mjs <repo>` copies it
+# verbatim into the other demo repos, so bumping an action version here and
+# re-running the installer propagates it everywhere.
+
 permissions:
   contents: read
   pages: write
   id-token: write
 
+# Let a running deploy finish rather than cancelling it — a half-deployed site is
+# worse than a slightly stale one. Queued duplicate pushes collapse to the newest.
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # `npm ci` is the fast, reproducible path, but several demo repos carry a
+      # lockfile that has drifted from package.json. Publishing demos should not
+      # be blocked on that, so fall back rather than failing the deploy.
+      - run: npm ci || npm install
+
+      # Exposes the site's base path (e.g. /threejs-demos) so the build stays
+      # correct if the repo is ever renamed.
+      - uses: actions/configure-pages@v5
+        id: pages
+
+      - name: Build all demos
+        run: npm run build:all
+        env:
+          BASE: ${{ steps.pages.outputs.base_path }}/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-pages
+
   deploy:
-    uses: stevejtrettel/threejs-demos/.github/workflows/pages.yml@main
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
