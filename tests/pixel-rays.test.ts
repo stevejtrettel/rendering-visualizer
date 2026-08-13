@@ -15,6 +15,7 @@ const straight = (segments: number, len: number): TracedPath => ({
   points: Array.from({ length: segments + 1 }, (_, i) => [i * len, 0, 0] as const),
   beta: 1,
   lit: true,
+  litAt: null,
 });
 
 // One long path (a big room) beside a short one, which is exactly the case

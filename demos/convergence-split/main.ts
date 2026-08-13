@@ -22,7 +22,7 @@
 import { createStage, createUI, C } from '@';
 import { SCENES, type SceneName } from '@/scenes/registry';
 import type { SceneDescription } from '@/core/scene/scene';
-import { describeIntegrator, type IntegratorName } from '@/render/protocol';
+import type { IntegratorDescription } from '@/render/protocol';
 import { FilmPanel } from '@/viz/film-panel';
 import { ConvergenceComparison, type SyncMode } from '@/render/comparison';
 import { msSchedule, sppSchedule, type Pacing } from '@/render/convergence';
@@ -31,7 +31,7 @@ import { ProgressBar } from '@/viz/progress-bar';
 
 // --- Figure spec -----------------------------------------------------------
 const RES = 260; // two panels share the frame, so smaller than the solo page
-const MAX_SPP = 128; // x2 tracers: keep modest while tuning, raise to export
+const MAX_SPP = 256; // x2 tracers: the whole ladder is traced every restart
 const MAX_DEPTH = 8; // shared cap: both estimate the SAME truncated integral
 const SEED = 0;
 const FPS = 60;
@@ -44,7 +44,26 @@ const PANEL_Y = 0.12;
 const PANEL_H = 1.34;
 
 const SCENE_NAMES = Object.keys(SCENES) as SceneName[];
-const TRACERS: IntegratorName[] = ['pt', 'pt-term', 'pt-nee', 'pt-sms', 'bdpt', 'mmlt', 'restir'];
+
+// Presets, not bare integrator names — the same table `convergence` and
+// `still` use, so all three pages mean the same thing by the same word.
+//
+// The one that was missing here, and the reason this page exists: `pt-naive`
+// is naive on BOTH axes at once (uniform directions AND an up-front
+// path-length draw), which is the left-hand side of the naive-vs-standard
+// figure. `pt-term` is easy to mistake for it and is not — it is naive on
+// the length axis only, still importance-sampling directions.
+const TRACERS = {
+  'pt-naive': (d: number): IntegratorDescription => ({ name: 'pt-term', maxBounces: d, directions: 'uniform' }),
+  pt: (d: number): IntegratorDescription => ({ name: 'pt', maxBounces: d }),
+  'pt-nee': (d: number): IntegratorDescription => ({ name: 'pt-nee', maxBounces: d }),
+  'pt-sms': (d: number): IntegratorDescription => ({ name: 'pt-sms', maxBounces: d }),
+  bdpt: (d: number): IntegratorDescription => ({ name: 'bdpt', maxBounces: d }),
+  mmlt: (d: number): IntegratorDescription => ({ name: 'mmlt', maxBounces: d }),
+  restir: (d: number): IntegratorDescription => ({ name: 'restir', maxBounces: d }),
+};
+type TracerName = keyof typeof TRACERS;
+const TRACER_NAMES = Object.keys(TRACERS) as TracerName[];
 
 const filmSize = (scene: SceneName) =>
   scene === 'material-row'
@@ -55,7 +74,7 @@ const filmSize = (scene: SceneName) =>
 // a delta emitter. BDPT and MMLT carry them fine (see
 // tests/delta-light-mis.test.ts) and plain PT correctly renders black.
 const hasDeltaLight = (d: SceneDescription) => (d.pointLights?.length ?? 0) > 0;
-const refuse = (scene: SceneName, tracers: IntegratorName[]): string | null =>
+const refuse = (scene: SceneName, tracers: TracerName[]): string | null =>
   hasDeltaLight(SCENES[scene]) && tracers.includes('restir')
     ? `restir has no delta-light support — ${scene} needs another tracer`
     : null;
@@ -111,8 +130,8 @@ function ensurePanels(width: number, height: number): [FilmPanel, FilmPanel] {
 // --- Controls --------------------------------------------------------------
 const params = {
   scene: 'cornell' as SceneName,
-  left: 'pt' as IntegratorName,
-  right: 'pt-nee' as IntegratorName,
+  left: 'pt' as TracerName,
+  right: 'pt-nee' as TracerName,
   sync: 'samples' as SyncMode,
   pacing: 'log' as Pacing,
   maxSpp: MAX_SPP,
@@ -142,17 +161,31 @@ function rebuildSchedule(): void {
 }
 
 ui.params.add(params, 'scene', SCENE_NAMES).onChange(restart);
-ui.params.add(params, 'left', TRACERS).onChange(restart);
-ui.params.add(params, 'right', TRACERS).onChange(restart);
-ui.params.add(params, 'sync', ['samples', 'time']).name('hold level by').onChange(rebuildSchedule);
-ui.params.add(params, 'pacing', ['log', 'linear', 'sqrt']).onChange(rebuildSchedule);
-ui.params.add(params, 'maxSpp', 1, MAX_SPP, 1).name('up to (spp)').onChange(rebuildSchedule);
-ui.params.add(params, 'holdStart', 0, 5, 0.1).name('hold first (s)').onChange(rebuildSchedule);
-ui.params.add(params, 'holdEnd', 0, 5, 0.1).name('hold last (s)').onChange(rebuildSchedule);
+ui.params.add(params, 'left', TRACER_NAMES).onChange(restart);
+ui.params.add(params, 'right', TRACER_NAMES).onChange(restart);
+// These reshape the movie without re-tracing anything, so they replay from
+// the top rather than cutting to wherever the new schedule happens to land
+// at the current time.
+function replay(): void {
+  rebuildSchedule();
+  shown = '';
+  stage.t = 0;
+}
+
+ui.params.add(params, 'sync', ['samples', 'time']).name('hold level by').onChange(replay);
+ui.params.add(params, 'pacing', ['log', 'linear', 'sqrt']).onChange(replay);
+ui.params.add(params, 'maxSpp', 1, MAX_SPP, 1).name('up to (spp)').onChange(replay);
+ui.params.add(params, 'holdStart', 0, 5, 0.1).name('hold first (s)').onChange(replay);
+ui.params.add(params, 'holdEnd', 0, 5, 0.1).name('hold last (s)').onChange(replay);
 
 // --- Playback --------------------------------------------------------------
 let comparison: ConvergenceComparison | null = null;
 let shown = '';
+// The PRESET names of the pair on screen, captured with the comparison.
+// ConvergenceComparison only knows the integrator underneath, which would
+// caption the naive tracer "pt-term" — true of the estimator, wrong as a
+// label for the thing the figure is about.
+let shownNames: [TracerName, TracerName] = ['pt', 'pt-nee'];
 
 stage.frame((t) => {
   if (!comparison || !panels) return;
@@ -168,8 +201,9 @@ stage.frame((t) => {
   [sppA, sppB].forEach((spp, side) => {
     const rgba = seqs[side]!.at(spp);
     if (rgba) panels![side]!.update(rgba);
-    const unit = comparison!.tracers[side]!.name === 'mmlt' ? 'mutation' : 'sample';
-    setText(sideLabels[side]!, `${comparison!.tracers[side]!.name} · ${spp} ${unit}${spp === 1 ? '' : 's'}`);
+    const name = shownNames[side as 0 | 1];
+    const unit = name === 'mmlt' ? 'mutation' : 'sample';
+    setText(sideLabels[side]!, `${name} · ${spp} ${unit}${spp === 1 ? '' : 's'}`);
   });
   setText(
     status,
@@ -198,9 +232,14 @@ function restart(): void {
 
   const { scene, left, right } = params;
   const size = filmSize(scene);
-  ensurePanels(size.width, size.height);
+  // Blank both: a panel holds its last upload, and the two sides trace one
+  // after the other, so without this the right one would show the PREVIOUS
+  // run's converged image — under its new caption — for the whole time the
+  // left one is tracing. That reads as "the right side is broken" rather
+  // than "the right side is next".
+  ensurePanels(size.width, size.height).forEach((p) => p.clear());
   setText(sideLabels[0]!, left);
-  setText(sideLabels[1]!, right);
+  setText(sideLabels[1]!, `${right} · queued`);
 
   const refusal = refuse(scene, [left, right]);
   if (refusal) {
@@ -215,23 +254,29 @@ function restart(): void {
   setText(status, `${left} vs ${right} · ${scene} · rendering…`);
   ready = ConvergenceComparison.render({
     description: SCENES[scene],
-    tracers: [describeIntegrator(left, MAX_DEPTH), describeIntegrator(right, MAX_DEPTH)],
+    tracers: [TRACERS[left](MAX_DEPTH), TRACERS[right](MAX_DEPTH)],
     width: size.width,
     height: size.height,
     maxSpp: MAX_SPP,
     seed: SEED,
     signal: controller.signal,
-    onProgress: ({ side, tracer, spp, maxSpp, rgba }) => {
+    // Captions carry the PRESET name, not the integrator underneath: the
+    // naive tracer is a `pt-term` to the renderer and "pt-naive" to anyone
+    // reading the figure.
+    onProgress: ({ side, spp, maxSpp, rgba }) => {
       if (gen !== generation) return;
+      const name = [left, right][side]!;
       panels?.[side]?.update(rgba);
       progress.visible = true;
       progress.set((side + spp / maxSpp) / 2);
-      setText(status, `${tracer} (${side + 1} of 2) · rendering ${spp} / ${maxSpp}`);
+      setText(sideLabels[side]!, `${name} · tracing`);
+      setText(status, `${name} (${side + 1} of 2) · rendering ${spp} / ${maxSpp}`);
     },
   })
     .then((c) => {
       if (gen !== generation) return;
       comparison = c;
+      shownNames = [left, right];
       shown = '';
       progress.visible = false;
       rebuildSchedule(); // time mode needs the measured budgets

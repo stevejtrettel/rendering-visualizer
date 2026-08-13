@@ -90,8 +90,10 @@ const grouped = (n: number) => n.toLocaleString('en-US');
 
 // --- Stage -----------------------------------------------------------------
 const stage = createStage({ position: [0, 2.8, 15.5], target: [0, 1.5, 1.0], fov: 42 });
-const ui = createUI(stage);
+// Before createUI: the Capture folder reads `duration` once, to default its
+// export range to the whole loop.
 stage.duration = LOOP_SECONDS;
+const ui = createUI(stage);
 
 let sceneGroup: THREE.Group | null = null;
 const rayGroup = new THREE.Group();

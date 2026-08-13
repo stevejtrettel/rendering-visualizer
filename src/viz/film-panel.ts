@@ -40,6 +40,13 @@ export interface FilmPanelOptions {
 export interface FilmTexture {
   texture: THREE.DataTexture;
   upload(rgba: Uint8ClampedArray): void;
+  /**
+   * Blank the film. A panel holds its last upload forever, so a page that
+   * re-renders on a control change would keep showing the OLD image until
+   * the new one's first pass lands — and where renders run one after the
+   * other, the waiting panel would sit there contradicting its own caption.
+   */
+  clear(): void;
 }
 
 export function createFilmTexture(width: number, height: number): FilmTexture {
@@ -68,6 +75,10 @@ export function createFilmTexture(width: number, height: number): FilmTexture {
         const src = y * stride;
         pixels.set(rgba.subarray(src, src + stride), (height - 1 - y) * stride);
       }
+      texture.needsUpdate = true;
+    },
+    clear() {
+      pixels.fill(0);
       texture.needsUpdate = true;
     },
   };
@@ -130,6 +141,11 @@ export class FilmPanel {
   /** Blit a developed frame (sRGB RGBA8, raster order). */
   update(rgba: Uint8ClampedArray): void {
     this.film.upload(rgba);
+  }
+
+  /** Blank the panel — nothing rendered here yet. */
+  clear(): void {
+    this.film.clear();
   }
 
   dispose(): void {

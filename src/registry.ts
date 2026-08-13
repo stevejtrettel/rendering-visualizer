@@ -69,10 +69,34 @@ export const INFO: Record<string, DemoInfo> = {
       'One pixel, one strategy, every ray it casts — shadow rays and BDPT connections included. Successive samples run in turn over the dimmed remains of the last, so the fan of attempts builds up. Sharpest at sample 0: PT finds nothing, NEE carries light home immediately.',
     section: 'Act 1 — one path',
   },
+  'bdpt-pyramid': {
+    title: 'Every way to build a path',
+    blurb:
+      "Veach's pyramid, live: row d is every split (s, t) of a depth-d path between the light walk and the camera walk. Unweighted, each cell is its own bad estimate of the whole image; weighted, each keeps only what it is good at and the panel beside them is their exact sum — stated as a residual that reads ~1e-7 when the MIS weights are right.",
+    section: 'Act 2 — many paths',
+  },
   'pixel-grid': {
     title: 'An image being computed',
     blurb:
       'A small grid of pixels on the camera frustum. Every sample fires one ray per pixel, they bounce around the room, and the mini-image fills in as their contributions accumulate.',
+    section: 'Act 0 — the renderer',
+  },
+  'one-ray': {
+    title: 'One ray, bouncing',
+    blurb:
+      'A single camera ray growing bounce by bounce to depth 10, and nothing else — then the same walk replaced thirty times a second, same pixel every time. One ray is a tidy diagram; thirty a second is what the estimator actually does.',
+    section: 'Act 1 — one path',
+  },
+  'material-trio': {
+    title: 'Three materials at once',
+    blurb:
+      'Fully rough, glossy and near-mirror in three Cornell shells, the same ray arriving at the same point on each — a cosine hemisphere, a lobe, and a 0.4-degree cone. Three scissored panes off one camera, head-on and centred, so nothing on screen differs but the surface.',
+    section: 'Act 1 — one path',
+  },
+  'pixel-sweep': {
+    title: 'One pixel at a time',
+    blurb:
+      'The unit of work under the other two: one cell of the film, a few rays through it, and the average they settle on — then the next cell. The colour only changes when a ray gets home, so what you watch is an estimate improving rather than a picture appearing.',
     section: 'Act 0 — the renderer',
   },
   'pixel-grid-still': {
@@ -80,6 +104,18 @@ export const INFO: Record<string, DemoInfo> = {
     blurb:
       'The same grid on the frustum, at the end instead of during: every ray of every sample drawn at once, and the converged image large beside it. Its cousin pixel-grid shows the loop; this shows the work — 33,000 paths for a 32x32 picture, most of them reporting nothing.',
     section: 'Act 0 — the renderer',
+  },
+  'pixel-bounce': {
+    title: 'Rays looking for the light',
+    blurb:
+      'One ray per pixel leaves the grid and the whole population walks out in lockstep, a bounce per beat, dark — and a path that lands on the lamp flips to ochre and stops. No image, no panel, just the search: at 24x24 with brute-force PT capped at ten bounces, 11 of 576 rays ever touch the light.',
+    section: 'Act 1 — one path',
+  },
+  'light-bounce': {
+    title: 'Photons looking for the film',
+    blurb:
+      'pixel-bounce run backwards: photons leave the lamp, walk out a bounce per beat, and one that crosses the film flips to ochre and stops — lighting the cell it landed in, so the film fills in photon by photon. 27 of 576 land in ten bounces, in 25 scattered cells of 256. The argument for connecting light vertices to the camera rather than waiting for a hit.',
+    section: 'Act 1 — one path',
   },
   'hello-stage': {
     title: 'Hello Stage',

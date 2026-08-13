@@ -22,6 +22,18 @@ export interface TracedPath {
   beta: number;
   /** Did this sample carry any light home? */
   lit: boolean;
+  /**
+   * Index into `points` of the first vertex that landed ON an emitter, or
+   * null if the walk never touched one.
+   *
+   * `lit` and this are different questions and a figure may want either.
+   * `lit` asks whether the sample delivered anything, however it got there —
+   * under NEE that is a shadow connection, and no vertex of the walk is on
+   * the light at all. This asks where the WALK hit an emitter, which is the
+   * event a figure about brute-force path tracing is about: the moment a ray
+   * stumbles onto the lamp. Null under NEE for exactly that reason.
+   */
+  litAt: number | null;
 }
 
 export interface PixelGridTrace {
@@ -62,6 +74,10 @@ export async function tracePixelGrid(options: PixelGridOptions): Promise<PixelGr
   const values = new Float32Array(samples * stride);
   const paths: TracedPath[][] = Array.from({ length: samples }, () => new Array(res * res));
   let litCount = 0;
+  // The flattened records name their primitive but do not carry its
+  // material, so "is this vertex on a lamp?" is answered by name against the
+  // scene the walk ran in. buildScene guarantees the names are unique.
+  const emissive = new Set(scene.primitives.filter((p) => p.light).map((p) => p.name));
 
   for (let y = 0; y < res; y++) {
     for (let x = 0; x < res; x++) {
@@ -90,7 +106,18 @@ export async function tracePixelGrid(options: PixelGridOptions): Promise<PixelGr
         }
         const lit = r > 0 || g > 0 || b > 0;
         if (lit) litCount += 1;
-        paths[s]![pixelIndex] = { points, beta, lit };
+
+        // From vertex 1: vertex 0 is the camera itself, which is on no
+        // primitive at all.
+        let litAt: number | null = null;
+        for (let v = 1; v < record.vertices.length; v++) {
+          const name = record.vertices[v]!.primitiveName;
+          if (name !== null && emissive.has(name)) {
+            litAt = v;
+            break;
+          }
+        }
+        paths[s]![pixelIndex] = { points, beta, lit, litAt };
 
         const o = s * stride + pixelIndex * 3;
         values[o] = r;
