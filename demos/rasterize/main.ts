@@ -52,11 +52,12 @@
  * rasterize that, then multiply the two images):
  *
  *   1. the flat colour image lifts off the screen and parks small below it;
- *   2. the elbow wanders about the 3D scene, slowly (a random walk over
- *      nearby pixels' surface points, from the top of the white ball), and
- *      the scene itself turns grey where it stops: a patch round each point
- *      takes the brightness factor, white where a surface faces the light;
- *      then the grey spreads from the last stop over the whole scene;
+ *   2. the scene itself is coloured grey by the angle, object by object,
+ *      independent of the screen (Steve, 2026-10-29: scan over objects and
+ *      colour them uniformly): on each, a front sweeps across the surface
+ *      (across a wall, top to bottom on a ball) and leaves the brightness
+ *      factor behind it, white where the surface faces the light, while the
+ *      elbow zigzags along the front like a brush;
  *   3. that grey scene is rasterized, piece by piece as on the flat slide,
  *      and the screen fills with the grey image;
  *   4. the colour image flies back onto the screen and the two multiply
@@ -135,13 +136,15 @@ const LAND = 0.3; // a landed piece's pixels fade in over this
 const lastLands = FIRST_PIECE + (PIECES.length - 1) * STAGGER + PIECE + LAND;
 // light:
 const ASIDE = [0.8, 2.0]; // the colour image lifts off the screen and parks below it
-const WANDER_START = 2.5;
-const WANDER_STOPS = 12;
-const STOP = 1.2; // seconds at each stop of the wander
-const ARRIVE = 0.45; // into a stop, when the scene round it turns grey
-const PATCH = 0.32; // world units: the grey patch round each stop
-const WANDER_REACH = 4 / 24; // how far one step of the wander may go, as a share of the screen
-const wanderEnd = WANDER_START + WANDER_STOPS * STOP;
+const WANDER_REACH = 4 / 24; // trace: how far one step of the slow rays' wander may go, as a share of the screen
+// light: each object is scanned grey in turn, PIECES order, this long each.
+const SCAN_START = 2.5;
+const SCAN_SECONDS: Record<string, number> = {
+  back: 3.2, left: 2.2, right: 2.0, floor: 2.0, ceiling: 1.8, light: 0.8, ball: 2.6, ballBlue: 2.2,
+};
+const ZIGZAGS = 3; // passes of the elbow across the front, per object
+const scanStarts = PIECES.reduce<number[]>((acc, name, k) => [...acc, k ? acc[k - 1]! + SCAN_SECONDS[PIECES[k - 1]!]! : SCAN_START], []);
+const scanEnd = scanStarts[PIECES.length - 1]! + SCAN_SECONDS[PIECES[PIECES.length - 1]!]!;
 // trace:
 const TRACE_START = 1.0;
 const TRACE_SLOW = 5; // slow rays, along the wander
@@ -151,8 +154,7 @@ const RAY_FILL = 1.4; // and when its pixel is filled
 const traceSlowEnd = TRACE_START + TRACE_SLOW * RAY_STEP;
 const TRACE_FAST = [traceSlowEnd, traceSlowEnd + 10]; // every other pixel, raster order, eased in
 const TRACE_LIT_3D = [TRACE_FAST[1]! + 0.6, TRACE_FAST[1]! + 2.0]; // a beat on the result before the hold
-const WASH = [wanderEnd + 0.2, wanderEnd + 2.6]; // the grey spreads from the last stop over everything
-const GREY_PIECES = WASH[1]! + 0.6; // then the grey scene is rasterized, piece by piece
+const GREY_PIECES = scanEnd + 0.8; // then the grey scene is rasterized, piece by piece
 const greyLands = GREY_PIECES + (PIECES.length - 1) * STAGGER + PIECE + LAND;
 const BACK = [greyLands + 0.5, greyLands + 2.0]; // the colour image flies back onto the screen
 const MULTIPLY = [BACK[1]!, BACK[1]! + 0.8]; // and the two become the shaded image
@@ -239,16 +241,9 @@ const frustumConstants = frustum.map((p) => p.constant);
 const OFF = 1000;
 
 // --- Flattening and colour, in the shaders ---------------------------------
-const MAX_VISITS = 16;
 const shared = {
   uLitAll: { value: 0 }, // how far the 3D scene has taken the angle shading (light)
-  // light: the scene turned grey, round the wander's stops and then a wash.
-  uGreyOn: { value: 0 },
-  uPatch: { value: PATCH },
-  uVisitCount: { value: 0 },
-  uVisited: { value: Array.from({ length: MAX_VISITS }, () => new THREE.Vector3()) },
-  uWashC: { value: new THREE.Vector3() },
-  uWashR: { value: 0 },
+  uGreyOn: { value: 0 }, // light: surfaces turned grey show the brightness factor, in white light
   uLamp: { value: LAMP.clone() },
   uAmb: { value: AMBIENT },
   uEye: { value: eye.clone() },
@@ -259,6 +254,56 @@ const shared = {
 interface Piece {
   flat: { value: number }; // how far it has flown onto the plane
   shade: { value: number }; // how far its colour has gone from three's lighting to the slide's
+  /** light: the grey front, a distance along sweepDir from sweepFrom; grey behind it. */
+  front: { value: number };
+  sweep: Sweep;
+}
+
+/**
+ * How an object is scanned grey (light): the front's start and direction,
+ * how far it travels, and where the elbow is with the front at s and the
+ * zigzag at w in [0, 1] across it.
+ */
+interface Sweep {
+  from: THREE.Vector3;
+  dir: THREE.Vector3;
+  length: number;
+  at(s: number, w: number): { p: THREE.Vector3; n: THREE.Vector3 };
+}
+function sweepOf(name: string): Sweep {
+  const shape = desc.primitives.find((p) => p.name === name)!.shape;
+  if (shape.kind === 'quad') {
+    // Across e1, the elbow zigzagging along e2.
+    const q = new THREE.Vector3(...shape.q);
+    const e1 = new THREE.Vector3(...shape.e1);
+    const e2 = new THREE.Vector3(...shape.e2);
+    const n = e1.clone().cross(e2).normalize();
+    const dir = e1.clone().normalize();
+    return {
+      from: q,
+      dir,
+      length: e1.length(),
+      at: (s, w) => ({ p: q.clone().addScaledVector(dir, s).addScaledVector(e2, 0.1 + 0.8 * w), n }),
+    };
+  }
+  if (shape.kind !== 'sphere') throw new Error('expected quads and spheres');
+  // Top to bottom, the elbow zigzagging round the side the viewer sees.
+  const c = new THREE.Vector3(...shape.center);
+  const r = shape.radius;
+  const v = new THREE.Vector3(...view.eye).sub(c);
+  const facing = Math.atan2(v.z, v.x);
+  return {
+    from: c.clone().add(new THREE.Vector3(0, r, 0)),
+    dir: new THREE.Vector3(0, -1, 0),
+    length: 2 * r,
+    at: (s, w) => {
+      const y = r - Math.min(2 * r * 0.97, Math.max(2 * r * 0.03, s));
+      const ring = Math.sqrt(Math.max(0, r * r - y * y));
+      const phi = facing + (w - 0.5) * 2.4;
+      const n = new THREE.Vector3(ring * Math.cos(phi), y, ring * Math.sin(phi)).normalize();
+      return { p: c.clone().addScaledVector(n, r), n };
+    },
+  };
 }
 // sceneToThree adds one mesh per primitive, in order.
 const pieces: Piece[] = PIECES.map((name) => {
@@ -267,10 +312,15 @@ const pieces: Piece[] = PIECES.map((name) => {
   const mat = (sceneGroup.children[i] as THREE.Mesh).material as THREE.MeshStandardMaterial;
   const flat = { value: 0 };
   const shade = { value: 0 };
+  const front = { value: -1 };
+  const sweep = sweepOf(name);
   const c = COLORS.get(name)!;
   const own = {
     uFlat: flat,
     uShade: shade,
+    uFront: front,
+    uSweepFrom: { value: sweep.from },
+    uSweepDir: { value: sweep.dir },
     uAlbedo: { value: new THREE.Vector3(c.r, c.g, c.b) },
     uLit: { value: name !== 'light' ? 1 : 0 },
   };
@@ -303,8 +353,7 @@ const pieces: Piece[] = PIECES.map((name) => {
         'void main() {',
         `uniform float uShade; uniform vec3 uAlbedo; uniform float uLit; uniform float uLitAll;
         uniform vec3 uLamp; uniform float uAmb; uniform vec3 uEye; varying vec3 vWorldP; varying vec3 vWorldN;
-        uniform float uGreyOn; uniform float uPatch; uniform int uVisitCount; uniform vec3 uVisited[${MAX_VISITS}];
-        uniform vec3 uWashC; uniform float uWashR;
+        uniform float uGreyOn; uniform float uFront; uniform vec3 uSweepFrom; uniform vec3 uSweepDir;
         void main() {`,
       )
       .replace(
@@ -313,21 +362,15 @@ const pieces: Piece[] = PIECES.map((name) => {
         vec3 nW = normalize( vWorldN );
         if ( dot( nW, uEye - vWorldP ) < 0.0 ) nW = -nW;
         float lit = uAmb + ( 1.0 - uAmb ) * max( 0.0, dot( nW, normalize( uLamp - vWorldP ) ) );
-        // light: grey where the wander has been and where the wash has reached.
-        float grey = 0.0;
-        for ( int i = 0; i < ${MAX_VISITS}; i++ ) {
-          if ( i >= uVisitCount ) break;
-          grey = max( grey, 1.0 - smoothstep( uPatch * 0.75, uPatch, distance( vWorldP, uVisited[ i ] ) ) );
-        }
-        if ( uWashR > 0.0 ) grey = max( grey, 1.0 - smoothstep( uWashR * 0.85, uWashR, distance( vWorldP, uWashC ) ) );
-        grey *= uGreyOn;
+        // light: grey behind the scan's front.
+        float grey = uGreyOn * ( 1.0 - smoothstep( uFront - 0.06, uFront, dot( vWorldP - uSweepFrom, uSweepDir ) ) );
         vec3 surface = mix( uAlbedo, vec3( 1.0 ), uGreyOn );
         float k = mix( 1.0, lit, max( uLit * uLitAll, uLit * uGreyOn ) );
         gl_FragColor.rgb = mix( gl_FragColor.rgb, surface * k, max( uShade, grey ) );`,
       );
   };
   mat.needsUpdate = true;
-  return { flat, shade };
+  return { flat, shade, front, sweep };
 });
 
 // --- The point being shaded (light) ----------------------------------------
@@ -461,7 +504,6 @@ let colourPanel: FilmPanel | null = null;
 let centres: ({ p: THREE.Vector3; n: THREE.Vector3 } | null)[] = [];
 /** light: the pixels in the order they are shaded. */
 let order: number[] = [];
-let wanderStops = 0;
 let shownFill = '';
 
 function buildScreen(res: number): void {
@@ -602,7 +644,7 @@ function restart(): void {
     });
     const reach = Math.max(1, Math.round(WANDER_REACH * res));
     const walk = [at];
-    while (walk.length < Math.min(SHADE === 'trace' ? TRACE_SLOW : WANDER_STOPS, res * res)) {
+    while (walk.length < Math.min(TRACE_SLOW, res * res)) {
       const [x0, y0] = [at % res, Math.floor(at / res)];
       const near: number[] = [];
       for (let dy = -reach; dy <= reach; dy++) {
@@ -622,7 +664,6 @@ function restart(): void {
       const j = Math.floor(random() * (i + 1));
       [rest[i], rest[j]] = [rest[j]!, rest[i]!];
     }
-    wanderStops = walk.length;
     order = [...walk, ...rest];
   }
   stage.duration = (SHADE === 'light' ? LIT_3D[1]! : SHADE === 'trace' ? TRACE_LIT_3D[1]! : lastLands) + HOLD;
@@ -678,30 +719,25 @@ function frameLight(t: number): void {
   shared.uGreyOn.value = 1;
   if (!screen || !pixels || !order.length) return;
 
-  // The wander: which stop the point is at, and the stops it has turned grey.
-  const stop = Math.floor((t - WANDER_START) / STOP);
-  const current = Math.min(wanderStops - 1, stop);
-  const greyed = stop < 0 ? 0 : Math.min(wanderStops, stop + (t - WANDER_START - stop * STOP >= ARRIVE ? 1 : 0));
-  shared.uVisitCount.value = Math.min(MAX_VISITS, greyed);
-  for (let k = 0; k < Math.min(MAX_VISITS, wanderStops); k++) {
-    const c = centres[order[k]!];
-    if (c) shared.uVisited.value[k]!.copy(c.p);
-  }
-  const pointShown = t >= WANDER_START && t < wanderEnd;
-  const centre = current >= 0 ? centres[order[current]!] : null;
-  probeGroup.visible = pointShown && !!centre;
+  // The scan: each object in turn, its front sweeping across and the elbow
+  // zigzagging along it; grey behind the front.
+  let scanning = -1;
+  pieces.forEach((piece, k) => {
+    const u = ramp(t, [scanStarts[k]!, scanStarts[k]! + SCAN_SECONDS[PIECES[k]!]!]);
+    piece.front.value = u <= 0 ? -1 : u >= 1 ? piece.sweep.length + 1 : u * piece.sweep.length;
+    if (u > 0 && u < 1) scanning = k;
+  });
+  probeGroup.visible = scanning >= 0;
   screenCell.visible = false; // the grey goes onto the scene here, not a pixel
-  if (pointShown && centre) {
-    const i = order[current]!;
-    placeProbe(centre.p, centre.n, i % params.grid, Math.floor(i / params.grid));
+  if (scanning >= 0) {
+    const piece = pieces[scanning]!;
+    const u = ramp(t, [scanStarts[scanning]!, scanStarts[scanning]! + SCAN_SECONDS[PIECES[scanning]!]!]);
+    const zig = (u * ZIGZAGS) % 1;
+    const w = Math.floor(u * ZIGZAGS) % 2 ? 1 - zig : zig;
+    const { p, n } = piece.sweep.at(u * piece.sweep.length, w);
+    placeProbe(p, n, 0, 0);
     planeCell.visible = false;
   }
-
-  // Then the grey spreads from the last stop over the whole scene.
-  const last = centres[order[wanderStops - 1]!];
-  if (last) shared.uWashC.value.copy(last.p);
-  const wash = ramp(t, WASH);
-  shared.uWashR.value = wash > 0 ? PATCH + 14 * wash * wash : 0;
 
   // Then the grey scene is rasterized, piece by piece, onto the screen.
   const landed = pieces.map((piece, k) => {
