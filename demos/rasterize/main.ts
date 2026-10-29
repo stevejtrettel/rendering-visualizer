@@ -60,7 +60,8 @@
  *      and then every other pixel fills in, in random order;
  *   3. the colour image flies back onto the screen and the two multiply
  *      into the shaded image;
- *   4. the 3D scene takes on the same shading.
+ *   4. a beat on the result. (The 3D scene keeps its own lit look
+ *      throughout, the same on every slide: styleShortBox.)
  *
  * Every image here is per-sample exact (SPP jittered samples a pixel): the
  * grey is the mean of the factor, the result the mean of colour x factor,
@@ -82,7 +83,7 @@
  * first TRACE_SLOW rays are slow, along a short wander from the top of the
  * white ball (as light's); then every other pixel in raster order, faster
  * and faster. The finished screen is light's image exactly (the same
- * per-sample computation), and the 3D scene then takes on the shading.
+ * per-sample computation). The 3D scene keeps its own lit look throughout.
  *
  * The plane sits at PLANE_DISTANCE, further out than level-zero's film, so
  * the flattened scene is big enough to read. Both ramp to the finished
@@ -99,6 +100,7 @@ import { IndependentSampler } from '@/core/sampler/independent';
 import { srgbEncode } from '@/render/film';
 import { pixelSeedKey } from '@/core/sampler/sampler';
 import { sceneToThree } from '@/viz/three-scene';
+import { styleShortBox } from '@/viz/short-box';
 import { imagePlaneFrame } from '@/viz/image-plane';
 import { cellOnPlane, cellInPanel } from '@/viz/film-cell';
 import { FilmPanel } from '@/viz/film-panel';
@@ -148,11 +150,11 @@ const RAY_OUT = 0.8; // into a step, when the ray reaches the surface
 const RAY_FILL = 1.4; // and when its pixel is filled
 const traceSlowEnd = TRACE_START + TRACE_SLOW * RAY_STEP;
 const TRACE_FAST = [traceSlowEnd, traceSlowEnd + 10]; // every other pixel, raster order, eased in
-const TRACE_LIT_3D = [TRACE_FAST[1]! + 0.6, TRACE_FAST[1]! + 2.0];
+const TRACE_LIT_3D = [TRACE_FAST[1]! + 0.6, TRACE_FAST[1]! + 2.0]; // a beat on the result before the hold
 const FILL = [wanderEnd + 0.3, wanderEnd + 3.3]; // every other pixel, random order
 const BACK = [FILL[1]! + 0.5, FILL[1]! + 2.0]; // the colour image flies back onto the screen
 const MULTIPLY = [BACK[1]!, BACK[1]! + 0.8]; // and the two become the shaded image
-const LIT_3D = [MULTIPLY[1]! + 0.3, MULTIPLY[1]! + 1.7]; // the 3D scene takes the same shading
+const LIT_3D = [MULTIPLY[1]! + 0.3, MULTIPLY[1]! + 1.7]; // a beat on the result before the hold
 /** Where the colour image waits while the grey is built: HUD centre, and its size relative to the screen. */
 const PARKED = { center: [-1.22, -0.8] as [number, number], scale: 0.3 };
 const HOLD = 3;
@@ -173,6 +175,7 @@ const COLORS = surfaceColors(desc);
 
 const sceneGroup = sceneToThree(desc);
 stage.add(sceneGroup);
+styleShortBox(stage.renderer, stage.scene, sceneGroup, desc);
 const view = vizViewFor(SCENE);
 stage.camera.position.set(...view.eye);
 stage.controls?.target.set(...view.target);
@@ -652,7 +655,7 @@ function frameLight(t: number): void {
   // flat image on the screen, which grid lines no longer cover.
   showCamera(1);
   gridLines.material.opacity = 0.999 * Math.min(1, 24 / params.grid);
-  for (const piece of pieces) piece.shade.value = 1;
+  for (const piece of pieces) piece.shade.value = 0; // the 3D scene keeps its own shading (styleShortBox)
   if (!screen || !pixels || !order.length) return;
 
   // How many pixels are grey by t, and which one the point is at: a stop
@@ -680,8 +683,6 @@ function frameLight(t: number): void {
     colourPanel.group.visible = t < MULTIPLY[0]!;
   }
 
-  // Once the product is on the screen, the 3D scene takes the same shading.
-  shared.uLitAll.value = smooth(ramp(t, LIT_3D));
 
   // The screen: blank under the colour image, grey where the scan has been,
   // then the product.
@@ -710,7 +711,7 @@ stage.add(ray);
 
 function frameTrace(t: number): void {
   showCamera(1);
-  for (const piece of pieces) piece.shade.value = 1;
+  for (const piece of pieces) piece.shade.value = 0; // the 3D scene keeps its own shading (styleShortBox)
   if (!screen || !pixels || !order.length) return;
 
   // Which ray is out, how far it has got, and how many pixels are filled.
@@ -744,11 +745,9 @@ function frameTrace(t: number): void {
     probeGroup.visible = true;
   }
 
-  // The grid lines give way as the image comes in; at the end the 3D scene
-  // takes the same shading.
+  // The grid lines give way as the image comes in.
   const under = Math.min(1, 24 / params.grid);
   gridLines.material.opacity = 0.999 * (1 + (under - 1) * ramp(t, TRACE_FAST));
-  shared.uLitAll.value = smooth(ramp(t, TRACE_LIT_3D));
 
   const key = `${done}`;
   if (key === shownFill) return;

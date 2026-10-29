@@ -23,6 +23,7 @@ import { IndependentSampler } from '@/core/sampler/independent';
 import { Film, srgbEncode } from '@/render/film';
 import { renderPass } from '@/render/driver';
 import { sceneToThree } from '@/viz/three-scene';
+import { styleShortBox } from '@/viz/short-box';
 import { FilmPanel } from '@/viz/film-panel';
 import { polyline, segments, setSegments } from '@/viz/lines';
 import { label } from '@/viz/text';
@@ -54,7 +55,9 @@ const stage = createStage({ position: [0, 2.8, 15.5], target: [0, 1.5, 1.0], fov
 const ui = createUI(stage);
 
 const desc = SCENES[SCENE];
-stage.add(sceneToThree(desc));
+const sceneGroup = sceneToThree(desc);
+stage.add(sceneGroup);
+styleShortBox(stage.renderer, stage.scene, sceneGroup, desc);
 const view = vizViewFor(SCENE);
 stage.camera.position.set(...view.eye);
 stage.controls?.target.set(...view.target);

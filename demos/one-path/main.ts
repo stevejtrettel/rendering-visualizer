@@ -63,7 +63,7 @@ import { polyline, segments, setPolyline, setSegments } from '@/viz/lines';
 import { srgbEncode } from '@/render/film';
 import { label, setText } from '@/viz/text';
 import { ASPECT } from '@/viz/stage';
-import { lampOutline, lampColor, translucent } from '@/viz/short-box';
+import { lampOutline, lampColor, styleShortBox } from '@/viz/short-box';
 import * as THREE from 'three';
 
 // --- Figure spec -----------------------------------------------------------
@@ -102,7 +102,7 @@ const sceneGroup = sceneToThree(desc);
 stage.add(sceneGroup);
 // The near side wall (green, the one the view looks across) is drawn
 // translucent, still green, so a path that goes behind it stays visible.
-translucent(sceneGroup, desc, 'right');
+styleShortBox(stage.renderer, stage.scene, sceneGroup, desc);
 const view = vizViewFor(SCENE);
 stage.camera.position.set(...view.eye);
 stage.controls?.target.set(...view.target);
