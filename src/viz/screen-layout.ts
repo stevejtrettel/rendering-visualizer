@@ -73,7 +73,7 @@ export function screenLayout(stage: Stage, camera: SceneDescription['camera'], s
   const sceneLabel = label('scene', { size: 0.08, color: C.bone, anchorX: 'center', anchorY: 'bottom' });
   stage.hud.add(screenLabel, sceneLabel);
 
-  const gridLines = segments({ width: 1.5 });
+  const gridLines = segments({ width: 1.5, opacity: 0.999 }); // transparent, so a slide can dim it
   stage.hud.add(gridLines);
   function drawGrid(res: number): void {
     const h = SCREEN.height;

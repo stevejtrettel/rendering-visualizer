@@ -3,11 +3,14 @@
  * image, one path per pixel; this makes that image again and again, each
  * time with fresh paths, and averages them.
  *
- * Each pass happens in one shot: its lit paths appear in their colours
- * (no dark stage: one-path and one-sample, the slides before, walked a
- * pass step by step already), its partial image appears on the film in the
- * scene and hovering above the running image, and the copy drops into the
- * running image, which becomes the average of every pass so far. The first
+ * Laid out as the slides before it (screen-layout.ts): the running image is
+ * the screen at the left, the box at the right with the camera's eye, plane
+ * and frustum, 64 x 64 pixels. Each pass happens in one shot: its lit paths
+ * appear in their colours (no dark stage: one-path and one-sample, the
+ * slides before, walked a pass step by step already), its partial image
+ * appears small between the screen and the scene, then flies onto the
+ * screen and merges into the running image, which becomes the average of
+ * every pass so far. The first
  * passes take FIRST seconds or so; then they speed up, and the average
  * visibly settles while each new partial image stays just as noisy. The
  * figure ramps to the average of all SAMPLES passes and holds it.
@@ -20,6 +23,11 @@
  * writes no depth, or faint lines in front would hide the ones behind and
  * it could never build up.) Steve, 2026-10-29, on the earlier version that
  * redrew every path dark-then-coloured each pass: "less flash-bangy".
+ *
+ * Readability choice: every pixel's path is traced and averaged, but only
+ * the paths of a fixed scattered subset of DRAWN pixels are drawn in the
+ * scene (the same pixels every pass). At 64 x 64 a pass is 4096 paths, and
+ * 64 passes of them would bury the room.
  *
  * The tracer is pt-aim, as on the slide before (one-sample ?strategy=aim):
  * bounce a random number of times, then send one ray at the lamp. Pass s is
@@ -37,8 +45,9 @@ import { AimAtLightPT } from '@/core/integrators/pt-aim';
 import { IndependentSampler } from '@/core/sampler/independent';
 import { pixelSeedKey } from '@/core/sampler/sampler';
 import { ArrayRecorder } from '@/trace/records';
+import { NULL_RECORDER } from '@/trace/recorder';
 import { sceneToThree } from '@/viz/three-scene';
-import { ImagePlaneElement } from '@/viz/image-plane';
+import { screenLayout, SCREEN, BLANK } from '@/viz/screen-layout';
 import { FilmPanel } from '@/viz/film-panel';
 import { segments, setSegments } from '@/viz/lines';
 import { lampOutline, lampColor, styleShortBox } from '@/viz/short-box';
@@ -48,15 +57,13 @@ import * as THREE from 'three';
 
 // --- Figure spec -----------------------------------------------------------
 const SCENE: SceneName = 'cornell-short';
-const PLANE_DISTANCE = 1.4; // as level-zero, one-path and one-sample
-/** The running image, and the partial image hovering above it. */
-const INSET = { center: [-1.3, -0.55] as [number, number], height: 0.6 };
-const RISE = 0.8; // how far above the running image a partial image hovers
+/** Where a pass's partial image appears before flying onto the screen: HUD centre, and size relative to the screen. */
+const TILE = { center: [-0.02, 0.33] as [number, number], scale: 0.3 };
+const DRAWN = 256; // pixels whose paths are drawn (see header)
 const MAX_BOUNCES = 8;
 const SAMPLES = 64;
 const LINE_GAIN = 4;
 const LINE_FLOOR = 0.35;
-const BLANK = 18;
 const HAZE_C = 1.0; // a haze path's opacity with N passes in: HAZE_C / N ...
 const HAZE_MAX = 0.35; // ... at most this
 const HAZE_WIDTH = 2;
@@ -84,6 +91,7 @@ const view = vizViewFor(SCENE);
 stage.camera.position.set(...view.eye);
 stage.controls?.target.set(...view.target);
 stage.controls?.update();
+const layout = screenLayout(stage, desc.camera, new THREE.Vector3(0, 4.35, 0));
 
 const { Le } = lampColor(desc);
 stage.add(lampOutline(desc));
@@ -95,12 +103,11 @@ const freshLines = segments({ width: HAZE_WIDTH, opacity: 0.999, toneMapped: fal
 const hazeLines = segments({ width: HAZE_WIDTH, opacity: 0.999, toneMapped: false });
 for (const lines of [hazeLines, freshLines]) lines.material.depthWrite = false;
 const hazeOpacity = (n: number) => Math.min(HAZE_MAX, HAZE_C / Math.max(1, n));
-const planeGroup = new THREE.Group();
-stage.add(hazeLines, freshLines, planeGroup);
+stage.add(hazeLines, freshLines);
 
 // --- Controls --------------------------------------------------------------
-const params = { grid: 16 };
-ui.params.add(params, 'grid', 2, 32, 1).name('film resolution').onChange(trace);
+const params = { grid: 64 };
+ui.params.add(params, 'grid', 2, 64, 1).name('film resolution').onChange(trace);
 
 // --- The passes ------------------------------------------------------------
 interface Pass {
@@ -126,6 +133,14 @@ function trace(): void {
   sums = [];
   let start = 0;
   const running = new Float32Array(res * res * 3);
+  // The drawn pixels: every pixel up to DRAWN of them, else a fixed scatter.
+  const drawn = new Uint8Array(res * res);
+  if (res * res <= DRAWN) drawn.fill(1);
+  else {
+    const scramble = (i: number) => (Math.imul(i ^ 0x9e3779b9, 0x85ebca6b) >>> 0) / 4294967296;
+    const byHash = Array.from({ length: res * res }, (_, i) => i).sort((a, b) => scramble(a) - scramble(b));
+    for (const i of byHash.slice(0, DRAWN)) drawn[i] = 1;
+  }
 
   for (let s = 0; s < SAMPLES; s++) {
     const shown = new Float32Array(res * res * 3);
@@ -135,6 +150,22 @@ function trace(): void {
       for (let x = 0; x < res; x++) {
         const key = pixelSeedKey(x, y, s);
         sampler.startPixelSample(key);
+        const p = (y * res + x) * 3;
+        if (!drawn[y * res + x]) {
+          // Not drawn: its value only.
+          const value = new THREE.Color(0, 0, 0);
+          for (const c of integrator.sampleContributions([x, y], sampler, scene, NULL_RECORDER)) {
+            if (c.kind === 'sample') value.add(new THREE.Color(c.value.r, c.value.g, c.value.b));
+          }
+          const d = display(value.clone());
+          shown[p] = d.r;
+          shown[p + 1] = d.g;
+          shown[p + 2] = d.b;
+          running[p]! += value.r;
+          running[p + 1]! += value.g;
+          running[p + 2]! += value.b;
+          continue;
+        }
         const recorder = new ArrayRecorder();
         recorder.beginPath(key);
         integrator.sampleContributions([x, y], sampler, scene, recorder);
@@ -172,7 +203,6 @@ function trace(): void {
           litPos.push(a.x, a.y, a.z, b.x, b.y, b.z);
           litCol.push(c.r, c.g, c.b, c.r, c.g, c.b);
         }
-        const p = (y * res + x) * 3;
         const d = display(value.clone());
         shown[p] = d.r;
         shown[p + 1] = d.g;
@@ -191,13 +221,13 @@ function trace(): void {
   if (!inset || inset.width !== res) {
     inset?.dispose();
     tile?.dispose();
-    inset = new FilmPanel({ width: res, height: res, center: INSET.center, drawnHeight: INSET.height });
-    tile = new FilmPanel({ width: res, height: res, center: INSET.center, drawnHeight: INSET.height, opacity: 0.999 });
+    inset = new FilmPanel({ width: res, height: res, center: SCREEN.center, drawnHeight: SCREEN.height, border: false });
+    tile = new FilmPanel({ width: res, height: res, drawnHeight: SCREEN.height, opacity: 0.999 });
     insetPixels = new Uint8ClampedArray(res * res * 4);
     tilePixels = new Uint8ClampedArray(res * res * 4);
     stage.hud.add(inset.group, tile.group);
+    layout.drawGrid(res);
   }
-  shownPlane = -2;
   shownAverage = -2;
   shownTile = -1;
   shownHaze = -1;
@@ -231,8 +261,6 @@ let inset: FilmPanel | null = null;
 let tile: FilmPanel | null = null;
 let insetPixels: Uint8ClampedArray | null = null;
 let tilePixels: Uint8ClampedArray | null = null;
-let plane: ImagePlaneElement | null = null;
-let shownPlane = -2;
 let shownAverage = -2;
 let shownTile = -1;
 let shownHaze = -1;
@@ -275,32 +303,13 @@ function paintAverage(landed: number): void {
   inset.update(insetPixels);
 }
 
-/** The partial image hovering above the running image. */
+/** A pass's partial image, on its way to the screen. */
 function paintTile(s: number): void {
   if (s === shownTile || !tile || !tilePixels) return;
   shownTile = s;
   const { shown } = passes[s]!;
   fill(tilePixels, (i) => [shown[i * 3]!, shown[i * 3 + 1]!, shown[i * 3 + 2]!]);
   tile.update(tilePixels);
-}
-
-/**
- * The film in the scene shows the running average (passes 0..landed), blank
- * before the first lands. Showing each pass's own image there as well made
- * it flash.
- */
-function ensurePlane(landed: number): void {
-  if (landed === shownPlane) return;
-  shownPlane = landed;
-  plane?.dispose();
-  plane = new ImagePlaneElement(
-    {
-      camera: desc.camera, distance: PLANE_DISTANCE, res, samples: 1, dwell: Infinity, highlight: null,
-      cumulative: landed >= 0 ? averageShown(landed) : new Float32Array(res * res * 3),
-      revealAt: landed >= 0 ? undefined : new Float32Array(res * res).fill(Infinity),
-    },
-    planeGroup,
-  );
 }
 
 /** The mean of passes 0..landed as shown: exposure 1, clipped. */
@@ -327,17 +336,25 @@ stage.frame((t) => {
   const done = t >= pass.start + pass.length; // past the last pass: holding
   const averaged = done || u >= DROP_LAND ? s : s - 1;
 
-  ensurePlane(averaged);
-  plane!.drawAt(t);
+  layout.update();
   paintTile(s);
   paintAverage(averaged);
   paintHaze(done ? passes.length : s);
 
-  // The partial image fades in above, falls in, and dissolves as it lands.
+  // The partial image fades in small beside the screen, flies onto it,
+  // growing to its size, and dissolves into the running image as it lands.
   const p = clamp01((u - DROP_START) / (DROP_LAND - DROP_START));
+  const e = p * p * (3 - 2 * p);
   tile!.group.visible = !done && u < DROP_LAND;
-  tile!.group.position.set(INSET.center[0], INSET.center[1] + RISE * (1 - p * p), 0.01);
+  tile!.group.position.set(
+    TILE.center[0] + (SCREEN.center[0] - TILE.center[0]) * e,
+    TILE.center[1] + (SCREEN.center[1] - TILE.center[1]) * e,
+    0.05,
+  );
+  tile!.group.scale.setScalar(TILE.scale + (1 - TILE.scale) * e);
   tileMaterial().opacity = clamp01(u / APPEAR) * (p < 0.7 ? 0.999 : Math.max(0, 1 - (p - 0.7) / 0.3));
+  // Under a landed image the grid lines give way, as on the slides before.
+  layout.gridLines.material.opacity = averaged >= 0 ? Math.min(1, 24 / res) : 0.999;
 
   // The pass's lit paths appear in colour and sink into the haze.
   if (done) {
