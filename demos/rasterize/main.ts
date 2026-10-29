@@ -43,8 +43,10 @@
  *
  * theta the angle between the surface normal and the direction to the
  * light. (The normal is taken on the side the camera sees, since the walls
- * are seen from inside.) A scan runs over the image in raster order, slow
- * at first and speeding up; at each pixel an elbow sits where the pixel's
+ * are seen from inside.) The point wanders about the scene, slowly, a
+ * random walk over nearby pixels starting on the white ball (Steve,
+ * 2026-10-29: wander slower, fill in pixels as we go, then all of them);
+ * at each pixel an elbow sits where the pixel's
  * centre sees the scene, the normal and the line to the light meeting at
  * the point with the angle between them filled in as a wedge (Steve,
  * 2026-10-29: no theta drawn, just the elbow, and it must be clear that
@@ -53,8 +55,9 @@
  * a greyscale image of the angle, overlaid on the colour image):
  *
  *   1. the flat colour image lifts off the screen and parks small below it;
- *   2. the scan fills the blank screen with the brightness factor, in grey,
- *      pixel by pixel (white where a surface faces the light);
+ *   2. the wander fills the blank screen with the brightness factor, in
+ *      grey, a pixel at each stop (white where a surface faces the light),
+ *      and then every other pixel fills in, in random order;
  *   3. the colour image flies back onto the screen and the two multiply
  *      into the shaded image;
  *   4. the 3D scene takes on the same shading.
@@ -118,10 +121,16 @@ const LAND = 0.3; // a landed piece's pixels fade in over this
 const lastLands = FIRST_PIECE + (PIECES.length - 1) * STAGGER + PIECE + LAND;
 // light:
 const ASIDE = [0.8, 2.0]; // the colour image lifts off the screen and parks below it
-const SCAN = [2.5, 19.5]; // every pixel, raster order, eased in: slow at first, then faster
-const BACK = [20.0, 21.5]; // the colour image flies back onto the screen
-const MULTIPLY = [21.5, 22.3]; // and the two become the shaded image
-const LIT_3D = [22.6, 24.0]; // the 3D scene takes the same shading
+const WANDER_START = 2.5;
+const WANDER_STOPS = 12;
+const STOP = 1.2; // seconds at each stop of the wander
+const ARRIVE = 0.45; // into a stop, when its pixel turns grey
+const WANDER_REACH = 4; // pixels: how far one step of the wander may go
+const wanderEnd = WANDER_START + WANDER_STOPS * STOP;
+const FILL = [wanderEnd + 0.3, wanderEnd + 3.3]; // every other pixel, random order
+const BACK = [FILL[1]! + 0.5, FILL[1]! + 2.0]; // the colour image flies back onto the screen
+const MULTIPLY = [BACK[1]!, BACK[1]! + 0.8]; // and the two become the shaded image
+const LIT_3D = [MULTIPLY[1]! + 0.3, MULTIPLY[1]! + 1.7]; // the 3D scene takes the same shading
 /** Where the colour image waits while the grey is built: HUD centre, and its size relative to the screen. */
 const PARKED = { center: [-1.22, -0.8] as [number, number], scale: 0.3 };
 const HOLD = 3;
@@ -406,6 +415,7 @@ let colourPanel: FilmPanel | null = null;
 let centres: ({ p: THREE.Vector3; n: THREE.Vector3 } | null)[] = [];
 /** light: the pixels in the order they are shaded. */
 let order: number[] = [];
+let wanderStops = 0;
 let shownFill = '';
 
 function buildScreen(res: number): void {
@@ -526,7 +536,45 @@ function restart(): void {
         names.push(hit ? (hit.primitive as unknown as { name: string }).name : null);
       }
     }
-    order = Array.from({ length: res * res }, (_, i) => i);
+    // The wander: from the pixel nearest the top of the white ball, each step
+    // to a random unvisited pixel within WANDER_REACH that sees the scene;
+    // then every other pixel in random order. Seeded, so every run is the same.
+    let seed = 12345;
+    const random = () => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let r = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+      return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+    };
+    const ball = desc.primitives.find((q) => q.name === 'ball')!.shape;
+    if (ball.kind !== 'sphere') throw new Error('expected a sphere');
+    const top = new THREE.Vector3(...ball.center).add(new THREE.Vector3(0.1, 0.9, 0.5).normalize().multiplyScalar(ball.radius));
+    let at = 0;
+    centres.forEach((c, i) => {
+      if (c && names[i] === 'ball' && c.p.distanceTo(top) < (centres[at]?.p.distanceTo(top) ?? Infinity)) at = i;
+    });
+    const walk = [at];
+    while (walk.length < Math.min(WANDER_STOPS, res * res)) {
+      const [x0, y0] = [at % res, Math.floor(at / res)];
+      const near: number[] = [];
+      for (let dy = -WANDER_REACH; dy <= WANDER_REACH; dy++) {
+        for (let dx = -WANDER_REACH; dx <= WANDER_REACH; dx++) {
+          const [x, y] = [x0 + dx, y0 + dy];
+          const i = y * res + x;
+          if ((dx || dy) && x >= 0 && y >= 0 && x < res && y < res && centres[i] && !walk.includes(i)) near.push(i);
+        }
+      }
+      if (!near.length) break;
+      at = near[Math.floor(random() * near.length)]!;
+      walk.push(at);
+    }
+    const rest = Array.from({ length: res * res }, (_, i) => i).filter((i) => !walk.includes(i));
+    for (let i = rest.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [rest[i], rest[j]] = [rest[j]!, rest[i]!];
+    }
+    wanderStops = walk.length;
+    order = [...walk, ...rest];
   }
   stage.duration = SHADE === 'light' ? LIT_3D[1]! + HOLD : lastLands + HOLD;
   stage.t = 0;
@@ -582,13 +630,14 @@ function frameLight(t: number): void {
   for (const piece of pieces) piece.shade.value = 1;
   if (!screen || !pixels || !order.length) return;
 
-  // How many pixels are shaded by t, and which one the point is at.
-  // Eased in (cubic): the first pixels take a beat each, then it speeds up.
-  const u = ramp(t, SCAN);
-  const done = Math.floor(order.length * u * u * u);
-  const current = Math.min(order.length - 1, done);
-  const pointShown = t >= SCAN[0]! && t < SCAN[1]! + 0.3;
-  const centre = centres[order[current]!];
+  // How many pixels are grey by t, and which one the point is at: a stop
+  // of the wander, then (point gone) the rest filling in.
+  const stop = Math.floor((t - WANDER_START) / STOP);
+  const current = Math.min(wanderStops - 1, stop);
+  let done = stop < 0 ? 0 : Math.min(wanderStops, stop + (t - WANDER_START - stop * STOP >= ARRIVE ? 1 : 0));
+  if (t >= FILL[0]!) done = wanderStops + Math.floor((order.length - wanderStops) * ramp(t, FILL));
+  const pointShown = t >= WANDER_START && t < wanderEnd;
+  const centre = current >= 0 ? centres[order[current]!] : null;
   probeGroup.visible = screenCell.visible = pointShown && !!centre;
   if (pointShown && centre) {
     const i = order[current]!;
