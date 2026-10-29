@@ -10,7 +10,13 @@
  * slides before, walked a pass step by step already), its partial image
  * appears small between the screen and the scene, then flies onto the
  * screen and merges into the running image, which becomes the average of
- * every pass so far. The first
+ * every pass so far. As it flies and grows it fades from opaque to 1 / N,
+ * N the passes in so far: its weight in the new average. So on landing it
+ * already shows the new average, and swapping in the updated screen does
+ * not jump (blending is in display space, the average in linear, so not to
+ * the last bit, but no visible jump). The next pass's image is waiting
+ * underneath at the small spot, so nothing blinks to black as one leaves
+ * (Steve, 2026-10-29: the growing image was jerky and flashed). The first
  * passes take FIRST seconds or so; then they speed up, and the average
  * visibly settles while each new partial image stays just as noisy. The
  * figure ramps to the average of all SAMPLES passes and holds it.
@@ -221,15 +227,19 @@ function trace(): void {
   if (!inset || inset.width !== res) {
     inset?.dispose();
     tile?.dispose();
+    nextTile?.dispose();
     inset = new FilmPanel({ width: res, height: res, center: SCREEN.center, drawnHeight: SCREEN.height, border: false });
     tile = new FilmPanel({ width: res, height: res, drawnHeight: SCREEN.height, opacity: 0.999 });
+    nextTile = new FilmPanel({ width: res, height: res, drawnHeight: SCREEN.height, opacity: 0.999 });
     insetPixels = new Uint8ClampedArray(res * res * 4);
     tilePixels = new Uint8ClampedArray(res * res * 4);
-    stage.hud.add(inset.group, tile.group);
+    nextPixels = new Uint8ClampedArray(res * res * 4);
+    stage.hud.add(inset.group, nextTile.group, tile.group);
     layout.drawGrid(res);
   }
   shownAverage = -2;
   shownTile = -1;
+  shownNext = -1;
   shownHaze = -1;
   stage.duration = start + HOLD;
   stage.t = 0;
@@ -259,6 +269,10 @@ function passAt(t: number): number {
 // --- Drawing ---------------------------------------------------------------
 let inset: FilmPanel | null = null;
 let tile: FilmPanel | null = null;
+/** The next pass's image, waiting at the small spot under the one in flight. */
+let nextTile: FilmPanel | null = null;
+let nextPixels: Uint8ClampedArray | null = null;
+let shownNext = -1;
 let insetPixels: Uint8ClampedArray | null = null;
 let tilePixels: Uint8ClampedArray | null = null;
 let shownAverage = -2;
@@ -303,13 +317,21 @@ function paintAverage(landed: number): void {
   inset.update(insetPixels);
 }
 
-/** A pass's partial image, on its way to the screen. */
+/** A pass's partial image, on its way to the screen, and the next one waiting. */
 function paintTile(s: number): void {
-  if (s === shownTile || !tile || !tilePixels) return;
-  shownTile = s;
-  const { shown } = passes[s]!;
-  fill(tilePixels, (i) => [shown[i * 3]!, shown[i * 3 + 1]!, shown[i * 3 + 2]!]);
-  tile.update(tilePixels);
+  if (s !== shownTile && tile && tilePixels) {
+    shownTile = s;
+    const { shown } = passes[s]!;
+    fill(tilePixels, (i) => [shown[i * 3]!, shown[i * 3 + 1]!, shown[i * 3 + 2]!]);
+    tile.update(tilePixels);
+  }
+  const n = s + 1;
+  if (n < passes.length && n !== shownNext && nextTile && nextPixels) {
+    shownNext = n;
+    const { shown } = passes[n]!;
+    fill(nextPixels, (i) => [shown[i * 3]!, shown[i * 3 + 1]!, shown[i * 3 + 2]!]);
+    nextTile.update(nextPixels);
+  }
 }
 
 /** The mean of passes 0..landed as shown: exposure 1, clipped. */
@@ -341,18 +363,24 @@ stage.frame((t) => {
   paintAverage(averaged);
   paintHaze(done ? passes.length : s);
 
-  // The partial image fades in small beside the screen, flies onto it,
-  // growing to its size, and dissolves into the running image as it lands.
+  // The partial image sits small beside the screen, then flies onto it,
+  // growing to its size and fading to its weight in the average, 1 / (s + 1),
+  // so that landing changes nothing to the eye. Only the very first fades in.
   const p = clamp01((u - DROP_START) / (DROP_LAND - DROP_START));
   const e = p * p * (3 - 2 * p);
   tile!.group.visible = !done && u < DROP_LAND;
   tile!.group.position.set(
     TILE.center[0] + (SCREEN.center[0] - TILE.center[0]) * e,
     TILE.center[1] + (SCREEN.center[1] - TILE.center[1]) * e,
-    0.05,
+    0.06,
   );
   tile!.group.scale.setScalar(TILE.scale + (1 - TILE.scale) * e);
-  tileMaterial().opacity = clamp01(u / APPEAR) * (p < 0.7 ? 0.999 : Math.max(0, 1 - (p - 0.7) / 0.3));
+  const weight = 1 / (s + 1);
+  tileMaterial().opacity = (s === 0 ? clamp01(u / APPEAR) : 1) * (1 + (weight - 1) * e) * 0.999;
+  // The next one is already there underneath as this one leaves.
+  nextTile!.group.visible = !done && s + 1 < passes.length && u >= DROP_START;
+  nextTile!.group.position.set(TILE.center[0], TILE.center[1], 0.04);
+  nextTile!.group.scale.setScalar(TILE.scale);
   // Under a landed image the grid lines give way, as on the slides before.
   layout.gridLines.material.opacity = averaged >= 0 ? Math.min(1, 24 / res) : 0.999;
 
