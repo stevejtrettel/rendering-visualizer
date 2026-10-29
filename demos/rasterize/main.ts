@@ -70,8 +70,7 @@
  * between surfaces, no falloff with distance, and the ambient floor stands
  * in for all the light that does not come straight from the lamp. The lamp
  * keeps its own colour. Screen and 3D scene use the same formula (CPU and
- * shader). It starts at 24 x 24, not flat's 64, so that one pixel changing
- * can be seen. The point and its lines are drawn over the scene, not
+ * shader). The point and its lines are drawn over the scene, not
  * hidden by it.
  *
  * The plane sits at PLANE_DISTANCE, further out than level-zero's film, so
@@ -125,7 +124,7 @@ const WANDER_START = 2.5;
 const WANDER_STOPS = 12;
 const STOP = 1.2; // seconds at each stop of the wander
 const ARRIVE = 0.45; // into a stop, when its pixel turns grey
-const WANDER_REACH = 4; // pixels: how far one step of the wander may go
+const WANDER_REACH = 4 / 24; // how far one step of the wander may go, as a share of the screen
 const wanderEnd = WANDER_START + WANDER_STOPS * STOP;
 const FILL = [wanderEnd + 0.3, wanderEnd + 3.3]; // every other pixel, random order
 const BACK = [FILL[1]! + 0.5, FILL[1]! + 2.0]; // the colour image flies back onto the screen
@@ -396,8 +395,7 @@ let pixels: Uint8ClampedArray | null = null;
 const gridLines = segments({ width: 1.5, opacity: 0.999 });
 stage.hud.add(gridLines);
 
-// light starts coarser, so that one pixel changing can be seen.
-const params = { grid: SHADE === 'light' ? 24 : 64 };
+const params = { grid: 64 };
 ui.params.add(params, 'grid', 2, 64, 1).name('film resolution').onChange(restart);
 
 /**
@@ -553,12 +551,13 @@ function restart(): void {
     centres.forEach((c, i) => {
       if (c && names[i] === 'ball' && c.p.distanceTo(top) < (centres[at]?.p.distanceTo(top) ?? Infinity)) at = i;
     });
+    const reach = Math.max(1, Math.round(WANDER_REACH * res));
     const walk = [at];
     while (walk.length < Math.min(WANDER_STOPS, res * res)) {
       const [x0, y0] = [at % res, Math.floor(at / res)];
       const near: number[] = [];
-      for (let dy = -WANDER_REACH; dy <= WANDER_REACH; dy++) {
-        for (let dx = -WANDER_REACH; dx <= WANDER_REACH; dx++) {
+      for (let dy = -reach; dy <= reach; dy++) {
+        for (let dx = -reach; dx <= reach; dx++) {
           const [x, y] = [x0 + dx, y0 + dy];
           const i = y * res + x;
           if ((dx || dy) && x >= 0 && y >= 0 && x < res && y < res && centres[i] && !walk.includes(i)) near.push(i);
