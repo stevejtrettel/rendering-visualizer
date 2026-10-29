@@ -2,8 +2,11 @@
  * SHOWS: the short box rendered for real, full size, getting better as you
  * watch, and the converged image it is heading for. The talk's slide after
  * many-samples: there the average of 64 tiny noisy images settled; here a
- * RES x RES image does the same live, on every core (a WorkerPool, as
- * `still`), the count of paths per pixel climbing beside it.
+ * RES x RES image does the same live, on every core, the count of paths per
+ * pixel climbing beside it. Live means LiveRender: workers post their paths
+ * in small chunks of pixels in a scattered order, so the picture fills in as
+ * speckle from the first frame (Steve, 2026-10-29: the live view was
+ * extremely slow to load; it should start at once, noisy, as move-camera).
  *
  * `image` switches between:
  *
@@ -20,15 +23,17 @@
  * The tracer is pt-nee (path tracing that also aims at the lamp at every
  * bounce): an unbiased estimator of the same image as the pt-aim of the
  * slides before, the standard choice for a still. The live render's
- * intermediate states depend on worker timing (the pool merges whichever
- * passes have arrived), so they do not replay exactly; only the converged
- * image is deterministic, and that is what is saved.
+ * intermediate states depend on worker timing, so they do not replay
+ * exactly; only the converged image is deterministic, and that is what is
+ * saved. Bake mode uses a WorkerPool, which merges whole passes in worker
+ * order, so the baked image is bit-deterministic.
  */
 
 import { createStage, createUI, C } from '@';
 import { SCENES, type SceneName } from '@/scenes/registry';
 import type { IntegratorDescription } from '@/render/protocol';
 import { WorkerPool, type PoolUpdate } from '@/render/pool';
+import { LiveRender } from '@/render/live';
 import { FilmPanel } from '@/viz/film-panel';
 import { label, setText } from '@/viz/text';
 
@@ -77,35 +82,27 @@ ui.params.add(params, 'image', ['live', 'converged']).onChange(show);
 
 // --- The live render ---------------------------------------------------------
 const bakeTo = Number(new URLSearchParams(location.search).get('bake')) || 0;
-let latest: { rgba: Uint8ClampedArray; spp: number } | null = null;
-const REFRESH_MS = 500;
-let lastShown = -Infinity;
-
-new WorkerPool({
-  size: POOL_SIZE,
-  description: SCENES[SCENE],
-  width: RES,
-  height: RES,
-  seed: SEED,
-  integrator: INTEGRATOR,
-  maxSpp: bakeTo || LIVE_SPP,
-  onUpdate: (u: PoolUpdate) => {
-    // Developing the merged film is the expensive part, so it is done at
-    // most every REFRESH_MS for the live view, and in bake mode only at the
-    // end: developing every pass at RES x RES piled up and crashed the page.
-    if (bakeTo) {
+const liveRgba = new Uint8ClampedArray(RES * RES * 4);
+const live = bakeTo ? null : new LiveRender({ description: SCENES[SCENE], res: RES, tracer: 'nee', maxBounces: 8, maxSpp: LIVE_SPP });
+if (bakeTo) {
+  // Bake mode: whole passes, merged in worker order, developed once at the
+  // end (developing every pass at RES x RES piled up and crashed the page).
+  new WorkerPool({
+    size: POOL_SIZE,
+    description: SCENES[SCENE],
+    width: RES,
+    height: RES,
+    seed: SEED,
+    integrator: INTEGRATOR,
+    maxSpp: bakeTo,
+    onUpdate: (u: PoolUpdate) => {
       if (u.totalSpp >= bakeTo) bake(u.frame().rgba, u.totalSpp);
-      return;
-    }
-    const now = performance.now();
-    if (now - lastShown < REFRESH_MS && u.totalSpp < LIVE_SPP) return;
-    lastShown = now;
-    latest = { rgba: u.frame().rgba, spp: u.totalSpp };
-    if (params.image === 'live') show();
-  },
-});
+    },
+  });
+}
 
-const perPixel = (n: number) => `${n.toLocaleString('en-US')} path${n === 1 ? '' : 's'} per pixel`;
+const perPixel = (n: number) =>
+  n < 10 ? `${n.toFixed(1)} paths per pixel` : `${Math.floor(n).toLocaleString('en-US')} paths per pixel`;
 
 // --- The converged image -----------------------------------------------------
 let converged: Uint8ClampedArray | null = null;
@@ -133,10 +130,18 @@ function show(): void {
     setText(caption, converged ? perPixel(bakedMeta!.spp) : 'loading…');
     return;
   }
-  if (latest) panel.update(latest.rgba);
-  setText(caption, latest ? perPixel(latest.spp) : '');
+  if (!live) return;
+  live.develop(liveRgba);
+  panel.update(liveRgba);
+  setText(caption, perPixel(live.perPixel));
 }
 show();
+
+// The live view refreshes every few frames: developing RES x RES is not free.
+let frameCount = 0;
+stage.frame(() => {
+  if (params.image === 'live' && ++frameCount % 3 === 0) show();
+});
 
 // --- Bake mode -------------------------------------------------------------------
 let baked = false;
