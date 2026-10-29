@@ -45,6 +45,11 @@
  * same cell again throws another path. If none of PIXEL_SAMPLES reach the
  * lamp, its first sample is shown as it is, dark, and the pixel stays
  * black: most paths find nothing.
+ *
+ * Earlier paths leave their pixels behind: when a new path is thrown, the
+ * one before it keeps its result on the screen (its colour, or black if it
+ * found no light), so clicking around builds up an image a path at a time
+ * (Steve, 2026-10-29). Changing the film resolution clears it.
  */
 
 import { createStage, createUI, C } from '@';
@@ -264,6 +269,8 @@ function search(): void {
   const sampler = new IndependentSampler(0);
   candidates = [];
   chosen = null;
+  painted.clear();
+  disposeBuilt(); // a new grid: nothing earlier carries over
   // Pixels in a fixed scrambled order, not raster order: at a fine grid the
   // pool fills within the first pass, and raster order would take every
   // candidate from the top of the picture.
@@ -323,6 +330,11 @@ function disposeBuilt(): void {
 }
 
 function build(): void {
+  // The path being replaced leaves its result in its pixel.
+  if (built) {
+    const { cand, lit, segColor } = built;
+    painted.set(cand.y * params.grid + cand.x, lit ? segColor[1]!.clone() : new THREE.Color(0, 0, 0));
+  }
   disposeBuilt();
   const cand = chosen ?? candidates[params.path];
   insetLit = null;
@@ -411,6 +423,8 @@ function build(): void {
 }
 
 let insetLit: boolean | null = null;
+/** Pixels finished by earlier paths: index -> colour (black if the path found no light). */
+const painted = new Map<number, THREE.Color>();
 function paintInset(lit: boolean): void {
   if (!inset || !insetPixels || !built || lit === insetLit) return;
   insetLit = lit;
@@ -418,11 +432,11 @@ function paintInset(lit: boolean): void {
   const res = params.grid;
   for (let i = 0; i < res * res; i++) {
     const o = i * 4;
-    const on = lit && i === cand.y * res + cand.x;
-    const c = built.segColor[1]!;
-    insetPixels[o] = on ? srgbEncode(c.r) : BLANK;
-    insetPixels[o + 1] = on ? srgbEncode(c.g) : BLANK;
-    insetPixels[o + 2] = on ? srgbEncode(c.b) : BLANK;
+    const current = i === cand.y * res + cand.x;
+    const c = current ? (lit ? built.segColor[1]! : null) : (painted.get(i) ?? null);
+    insetPixels[o] = c ? srgbEncode(c.r) : BLANK;
+    insetPixels[o + 1] = c ? srgbEncode(c.g) : BLANK;
+    insetPixels[o + 2] = c ? srgbEncode(c.b) : BLANK;
     insetPixels[o + 3] = 255;
   }
   inset.update(insetPixels);
