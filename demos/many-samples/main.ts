@@ -5,7 +5,7 @@
  *
  * Laid out as the slides before it (screen-layout.ts): the running image is
  * the screen at the left, the box at the right with the camera's eye, plane
- * and frustum, 64 x 64 pixels. Each pass happens in one shot: its lit paths
+ * and frustum, 45 x 45 pixels (as one-sample). Each pass happens in one shot: its lit paths
  * appear in their colours (no dark stage: one-path and one-sample, the
  * slides before, walked a pass step by step already), its partial image
  * appears small between the screen and the scene, then flies onto the
@@ -26,7 +26,7 @@
  *
  * Readability choice: every pixel's path is traced and averaged, but only
  * the paths of a fixed scattered subset of DRAWN pixels are drawn in the
- * scene (the same pixels every pass). At 64 x 64 a pass is 4096 paths, and
+ * scene (the same pixels every pass). At 45 x 45 a pass is 2025 paths, and
  * 64 passes of them would bury the room.
  *
  * The tracer is pt-aim, as on the slide before (one-sample ?strategy=aim):
@@ -106,7 +106,7 @@ const hazeOpacity = (n: number) => Math.min(HAZE_MAX, HAZE_C / Math.max(1, n));
 stage.add(hazeLines, freshLines);
 
 // --- Controls --------------------------------------------------------------
-const params = { grid: 64 };
+const params = { grid: 45 }; // as one-sample, the slide before
 ui.params.add(params, 'grid', 2, 64, 1).name('film resolution').onChange(trace);
 
 // --- The passes ------------------------------------------------------------

@@ -37,6 +37,11 @@
  * eye carries the pixel's own value (0.1 .. 0.4 here), which on black reads
  * as a path that vanished while its pixel lit up. The film stays true.
  * `sample` draws a different set of paths.
+ *
+ * Readability choice, as many-samples: every pixel's path is traced and
+ * every pixel lights when its light arrives, but only the paths of a fixed
+ * scattered subset of DRAWN pixels are drawn in the scene. At 45 x 45 a pass
+ * is 2025 paths, a solid wall of lines.
  */
 
 import { createStage, createUI, C } from '@';
@@ -103,7 +108,8 @@ stage.add(outLines, deadLines, backLines);
 // --- Controls --------------------------------------------------------------
 type Strategy = 'wait' | 'aim';
 const fromUrl = new URLSearchParams(location.search).get('strategy');
-const params = { strategy: (fromUrl === 'aim' ? 'aim' : 'wait') as Strategy, grid: 16, sample: 0 };
+const params = { strategy: (fromUrl === 'aim' ? 'aim' : 'wait') as Strategy, grid: 45, sample: 0 };
+const DRAWN = 256; // pixels whose paths are drawn (see header)
 ui.params.add(params, 'strategy', ['wait', 'aim']).onChange(trace);
 ui.params.add(params, 'grid', 2, 64, 1).name('film resolution').onChange(trace);
 ui.params.add(params, 'sample', 0, 63, 1).onChange(trace);
@@ -118,6 +124,8 @@ interface Path {
   color: THREE.Color[];
   /** When this pixel's light arrives (lit) or the film completes (unlit). */
   revealAt: number;
+  /** One of the DRAWN pixels whose path is shown in the scene. */
+  drawn: boolean;
 }
 let paths: Path[] = [];
 let outEnd = 0;
@@ -135,6 +143,15 @@ function trace(): void {
     : new UnidirectionalPT({ maxBounces: MAX_BOUNCES, rrStartDepth: 99, sampleNEE: false });
   const sampler = new IndependentSampler(0);
   paths = [];
+  // The drawn pixels: every pixel up to DRAWN of them, else a fixed scatter
+  // (the same hash as many-samples, so the two slides draw alike).
+  const drawnSet = new Uint8Array(res * res);
+  if (res * res <= DRAWN) drawnSet.fill(1);
+  else {
+    const scramble = (i: number) => (Math.imul(i ^ 0x9e3779b9, 0x85ebca6b) >>> 0) / 4294967296;
+    const byHash = Array.from({ length: res * res }, (_, i) => i).sort((a, b) => scramble(a) - scramble(b));
+    for (const i of byHash.slice(0, DRAWN)) drawnSet[i] = 1;
+  }
   values = new Float32Array(res * res * 3);
   litCount = 0;
   let maxOut = 0;
@@ -188,7 +205,7 @@ function trace(): void {
         maxBack = Math.max(maxBack, n);
       }
       maxOut = Math.max(maxOut, n);
-      paths.push({ pts, lit, aimed, color, revealAt: 0 });
+      paths.push({ pts, lit, aimed, color, revealAt: 0, drawn: drawnSet[y * res + x] === 1 });
     }
   }
 
@@ -260,6 +277,7 @@ stage.frame((t) => {
   };
 
   for (const p of paths) {
+    if (!p.drawn) continue;
     const n = p.pts.length - 1;
     for (let k = 1; k <= n; k++) {
       const a = p.pts[k - 1]!;
