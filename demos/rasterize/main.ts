@@ -32,6 +32,21 @@
  *     pixel's ray, which level-zero builds ray by ray later. The colours
  *     are the ones three-scene draws (first-hit shares them).
  *
+ * Two shadings (`?shade=` in the URL; a slide each):
+ *
+ *   flat   the surface's own colour, as above.
+ *   light  that colour times AMBIENT + (1 - AMBIENT) cos(theta), theta the
+ *          angle between the surface normal (turned toward the eye) and the
+ *          direction to the centre of the lamp. Brighter the more squarely a
+ *          surface faces the lamp, which brings the depth back, and easy to
+ *          say. It is a rasterizer's fake: no shadows, no light bouncing
+ *          between surfaces, no falloff with distance, and the ambient floor
+ *          stands in for all the light that does not come straight from the
+ *          lamp. The lamp itself keeps its own colour.
+ *
+ * The 3D pieces and the screen use the same formula (shader and CPU), so
+ * what lands on the plane is what the screen shows.
+ *
  * The plane sits at PLANE_DISTANCE, further out than level-zero's film, so
  * the flattened scene is big enough to read. The figure ramps to the
  * finished image and holds.
@@ -41,12 +56,11 @@ import { createStage, createUI, C } from '@';
 import { SCENES, type SceneName } from '@/scenes/registry';
 import { vizViewFor } from '@/viz/views';
 import { buildScene } from '@/core/scene/scene';
-import { FirstHitColor, surfaceColors } from '@/core/integrators/first-hit';
-import { Color } from '@/core/math/color';
+import { surfaceColors } from '@/core/integrators/first-hit';
+import { cameraSample } from '@/core/integrators/estimators';
 import { IndependentSampler } from '@/core/sampler/independent';
 import { srgbEncode } from '@/render/film';
 import { pixelSeedKey } from '@/core/sampler/sampler';
-import { NULL_RECORDER } from '@/trace/recorder';
 import { sceneToThree } from '@/viz/three-scene';
 import { imagePlaneFrame } from '@/viz/image-plane';
 import { FilmPanel } from '@/viz/film-panel';
@@ -57,7 +71,10 @@ import * as THREE from 'three';
 
 // --- Figure spec -----------------------------------------------------------
 const SCENE: SceneName = 'cornell-short';
-const SPP = 8; // antialiasing only: the image is flat colour
+const SPP = 8; // antialiasing only
+type Shade = 'flat' | 'light';
+const SHADE: Shade = new URLSearchParams(location.search).get('shade') === 'light' ? 'light' : 'flat';
+const AMBIENT = 0.2;
 /** Projected one at a time, in this order: back to front, a true depth order for this scene. */
 const PIECES = ['back', 'left', 'right', 'floor', 'ceiling', 'light', 'ball', 'ballBlue'];
 /** The screen, on the HUD, and the 3D view's sideways slide: as scene-and-screen. */
@@ -82,6 +99,22 @@ const ui = createUI(stage);
 stage.renderer.localClippingEnabled = true;
 
 const desc = SCENES[SCENE];
+const LAMP = (() => {
+  const lamp = desc.primitives.find((p) => p.name === 'light')!;
+  if (lamp.shape.kind !== 'quad') throw new Error('expected a quad lamp');
+  const { q, e1, e2 } = lamp.shape;
+  return new THREE.Vector3(...q).addScaledVector(new THREE.Vector3(...e1), 0.5).addScaledVector(new THREE.Vector3(...e2), 0.5);
+})();
+const COLORS = surfaceColors(desc);
+
+/** A surface point's colour, linear: flat, or lit by its angle to the lamp (see header). */
+function shadeAt(name: string, p: THREE.Vector3, n: THREE.Vector3): [number, number, number] {
+  const c = COLORS.get(name)!;
+  if (SHADE === 'flat' || name === 'light') return [c.r, c.g, c.b];
+  const facing = n.dot(eye.clone().sub(p)) < 0 ? n.clone().negate() : n;
+  const k = AMBIENT + (1 - AMBIENT) * Math.max(0, facing.dot(LAMP.clone().sub(p).normalize()));
+  return [c.r * k, c.g * k, c.b * k];
+}
 const sceneGroup = sceneToThree(desc);
 stage.add(sceneGroup);
 const view = vizViewFor(SCENE);
@@ -137,15 +170,14 @@ const OFF = 1000;
 
 // --- Flattening, in the vertex shader --------------------------------------
 const shared = {
+  uLamp: { value: LAMP.clone() },
+  uAmb: { value: AMBIENT },
   uEye: { value: eye.clone() },
   uFwd: { value: forward.clone() },
   uD: { value: PLANE_DISTANCE },
   uK: { value: DEPTH_KEEP },
 };
 interface Piece {
-  mat: THREE.MeshStandardMaterial;
-  color: THREE.Color;
-  emissive: THREE.Color;
   flat: { value: number };
 }
 // sceneToThree adds one mesh per primitive, in order.
@@ -154,17 +186,27 @@ const pieces: Piece[] = PIECES.map((name) => {
   if (i < 0) throw new Error(`no primitive ${name}`);
   const mat = (sceneGroup.children[i] as THREE.Mesh).material as THREE.MeshStandardMaterial;
   const flat = { value: 0 };
+  const c = COLORS.get(name)!;
+  const own = {
+    uFlat: flat,
+    uAlbedo: { value: new THREE.Vector3(c.r, c.g, c.b) },
+    uLit: { value: SHADE === 'light' && name !== 'light' ? 1 : 0 },
+  };
   mat.clippingPlanes = frustum;
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, shared, { uFlat: flat });
+    Object.assign(shader.uniforms, shared, own);
     shader.vertexShader = shader.vertexShader
       .replace(
         'void main() {',
-        'uniform float uFlat; uniform vec3 uEye; uniform vec3 uFwd; uniform float uD; uniform float uK;\nvoid main() {',
+        `uniform float uFlat; uniform vec3 uEye; uniform vec3 uFwd; uniform float uD; uniform float uK;
+        varying vec3 vWorldP; varying vec3 vWorldN;
+        void main() {`,
       )
       .replace(
         '#include <project_vertex>',
         `vec4 wp = modelMatrix * vec4( transformed, 1.0 );
+        vWorldP = wp.xyz;
+        vWorldN = normalize( mat3( modelMatrix ) * objectNormal );
         vec3 rel = wp.xyz - uEye;
         float ze = dot( rel, uFwd );
         float zFlat = uD + uK * ( ze - uD );
@@ -172,19 +214,27 @@ const pieces: Piece[] = PIECES.map((name) => {
         vec4 mvPosition = viewMatrix * wp;
         gl_Position = projectionMatrix * mvPosition;`,
       );
+    // As a piece flattens, three's lighting gives way to the slide's shading
+    // (shadeAt, in GLSL), written after tone mapping so it is shown as is.
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        'void main() {',
+        `uniform float uFlat; uniform vec3 uAlbedo; uniform float uLit; uniform vec3 uLamp; uniform float uAmb;
+        uniform vec3 uEye; varying vec3 vWorldP; varying vec3 vWorldN;
+        void main() {`,
+      )
+      .replace(
+        '#include <tonemapping_fragment>',
+        `#include <tonemapping_fragment>
+        vec3 nW = normalize( vWorldN );
+        if ( dot( nW, uEye - vWorldP ) < 0.0 ) nW = -nW;
+        float lit = uAmb + ( 1.0 - uAmb ) * max( 0.0, dot( nW, normalize( uLamp - vWorldP ) ) );
+        gl_FragColor.rgb = mix( gl_FragColor.rgb, uAlbedo * mix( 1.0, lit, uLit ), uFlat );`,
+      );
   };
   mat.needsUpdate = true;
-  return { mat, color: mat.color.clone(), emissive: mat.emissive.clone(), flat };
+  return { flat };
 });
-
-/** A piece flattened by f: on its way to the plane, its shading fading to flat surface colour. */
-function setFlat(piece: Piece, f: number): void {
-  piece.flat.value = f;
-  const { mat, color, emissive } = piece;
-  if (emissive.r + emissive.g + emissive.b > 0) return; // the lamp already shows its own colour
-  mat.color.copy(color).multiplyScalar(1 - f);
-  mat.emissive.copy(color).multiplyScalar(f);
-}
 
 // --- Labels ----------------------------------------------------------------
 const sceneLabel = label('scene', { size: 0.08, color: C.bone, anchorX: 'center', anchorY: 'bottom', opacity: 0.999 });
@@ -221,8 +271,11 @@ stage.hud.add(gridLines);
 const params = { grid: 64 };
 ui.params.add(params, 'grid', 2, 64, 1).name('film resolution').onChange(restart);
 
-/** Per piece: its flat colour (sRGB bytes) and, per pixel, which of the SPP samples it covers (a bitmask). */
-let layers: { rgb: [number, number, number]; covers: Uint8Array }[] = [];
+/**
+ * Per piece, per pixel: which of the SPP samples it covers (a bitmask), and
+ * each sample's colour there (sRGB bytes, at (pixel * SPP + sample) * 3).
+ */
+let layers: { covers: Uint8Array; rgb: Uint8Array }[] = [];
 let shownFill = '';
 
 function buildScreen(res: number): void {
@@ -250,25 +303,31 @@ function restart(): void {
   const res = params.grid;
   buildScreen(res);
   shownFill = '';
-  const colors = surfaceColors(desc);
   const sampler = new IndependentSampler(0);
-  // Each piece rendered alone: which samples of each pixel it covers.
+  // Each piece rendered alone, the same rays for every piece: which samples
+  // of each pixel it covers, and its shaded colour at each.
   layers = PIECES.map((name) => {
     const alone = { ...desc, primitives: desc.primitives.filter((p) => p.name === name) };
-    const integrator = new FirstHitColor(new Map([[name, new Color(1, 1, 1)]]));
     const scene = buildScene(alone, res, res);
     const covers = new Uint8Array(res * res);
+    const rgb = new Uint8Array(res * res * SPP * 3);
     for (let y = 0; y < res; y++) {
       for (let x = 0; x < res; x++) {
         for (let s = 0; s < SPP; s++) {
           sampler.startPixelSample(pixelSeedKey(x, y, s));
-          const [c] = integrator.sampleContributions([x, y], sampler, scene, NULL_RECORDER);
-          if (c && c.value.r > 0) covers[y * res + x]! |= 1 << s;
+          const hit = scene.aggregate.intersect(cameraSample(scene, [x, y], sampler).ray);
+          if (!hit) continue;
+          const i = y * res + x;
+          covers[i]! |= 1 << s;
+          const c = shadeAt(name, new THREE.Vector3(hit.p.x, hit.p.y, hit.p.z), new THREE.Vector3(hit.ns.x, hit.ns.y, hit.ns.z));
+          const o = (i * SPP + s) * 3;
+          rgb[o] = srgbEncode(c[0]);
+          rgb[o + 1] = srgbEncode(c[1]);
+          rgb[o + 2] = srgbEncode(c[2]);
         }
       }
     }
-    const c = colors.get(name)!;
-    return { rgb: [srgbEncode(c.r), srgbEncode(c.g), srgbEncode(c.b)], covers };
+    return { covers, rgb };
   });
   stage.t = 0;
 }
@@ -293,7 +352,7 @@ stage.frame((t) => {
   // each appears on the screen as it lands, over the ones before.
   const landed = pieces.map((piece, k) => {
     const start = FIRST_PIECE + k * STAGGER;
-    setFlat(piece, smooth(ramp(t, [start, start + PIECE])));
+    piece.flat.value = smooth(ramp(t, [start, start + PIECE]));
     return ramp(t, [start + PIECE, start + PIECE + LAND]);
   });
 
@@ -313,12 +372,13 @@ stage.frame((t) => {
       let sr = BLANK;
       let sg = BLANK;
       let sb = BLANK;
+      const o = (i * SPP + s) * 3;
       layers.forEach(({ rgb, covers }, k) => {
         const a = covers[i]! & (1 << s) ? landed[k]! : 0;
         if (a <= 0) return;
-        sr += (rgb[0] - sr) * a;
-        sg += (rgb[1] - sg) * a;
-        sb += (rgb[2] - sb) * a;
+        sr += (rgb[o]! - sr) * a;
+        sg += (rgb[o + 1]! - sg) * a;
+        sb += (rgb[o + 2]! - sb) * a;
       });
       r += sr;
       g += sg;

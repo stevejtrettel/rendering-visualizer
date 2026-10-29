@@ -96,7 +96,7 @@ export const INFO: Record<string, DemoInfo> = {
   rasterize: {
     title: 'Rasterization',
     blurb:
-      "The map from scene to screen: the camera's eye and image plane appear in front of the box, every point of the scene slides along its line to the eye until the scene lies flat on the plane (depth order kept, as a z-buffer keeps it), and the screen fills with the flat-colour image.",
+      "The map from scene to screen: the camera's eye and image plane appear in front of the box, every point of the scene slides along its line to the eye until the scene lies flat on the plane (depth order kept, as a z-buffer keeps it), and the screen fills with the image. ?shade=light lights each surface by its angle to the lamp.",
     section: 'Act 1 — one path',
   },
   'scene-and-screen': {
