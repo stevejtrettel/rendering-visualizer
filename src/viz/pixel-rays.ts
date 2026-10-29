@@ -122,6 +122,22 @@ export class PixelRays {
     return this.geometry.drawRange.count / 2;
   }
 
+  /**
+   * When pixel i's ray in sample s reaches its last vertex, in seconds from
+   * the start: its launch in the sweep plus its length at the common speed.
+   * Lets a figure light a pixel the moment its own ray lands.
+   */
+  landTime(s: number, i: number): number {
+    const { paths, samplePeriod, launch, sweepSeconds } = this.options;
+    const sample = paths[s];
+    const path = sample?.[i];
+    if (!sample || !path) return Infinity;
+    let len = 0;
+    for (let k = 1; k < path.points.length; k++) len += dist(path.points[k - 1]!, path.points[k]!);
+    const start = launch === 'sweep' ? (i / sample.length) * sweepSeconds : 0;
+    return s * samplePeriod + start + len / this.speed;
+  }
+
   /** Which sample is on screen at time t. */
   sampleAt(t: number): number {
     const { samplePeriod } = this.options;

@@ -39,7 +39,17 @@ export interface ImagePlaneConfig {
   cumulative: Float32Array; // from toCumulative
   highlight: readonly [number, number] | null; // outlined cell
   exposure?: number;
+  /**
+   * Optional per-cell reveal times, indexed y * res + x: a cell stays blank
+   * until t reaches its time, then shows its value. For figures where each
+   * pixel appears the moment its own ray lands, rather than a whole sample
+   * at once. Used with a single sample.
+   */
+  revealAt?: Float32Array;
 }
+
+/** What an unrevealed cell shows: blank film, dark but not invisible. */
+const BLANK = 18;
 
 /**
  * Where the image plane sits on the camera frustum, and the basis it is
@@ -156,14 +166,25 @@ export class ImagePlaneElement implements TimelineElement {
 
   drawAt(t: number): void {
     const s = Math.min(this.cfg.samples - 1, Math.max(0, Math.floor(t / this.cfg.dwell)));
-    if (s === this.lastSample) return;
-    this.lastSample = s;
-    const { res, cumulative, exposure = 1 } = this.cfg;
+    const { res, cumulative, exposure = 1, revealAt } = this.cfg;
+    // With reveal times, what changes is how many cells are showing.
+    let key = s;
+    if (revealAt) {
+      key = 0;
+      for (let i = 0; i < revealAt.length; i++) if (t >= revealAt[i]!) key++;
+    }
+    if (key === this.lastSample) return;
+    this.lastSample = key;
     for (let y = 0; y < res; y++) {
       for (let x = 0; x < res; x++) {
-        const [r, g, b] = meanAt(cumulative, res, s, x, y);
         // Texture row 0 is the BOTTOM of the plane; raster y grows downward.
         const o = ((res - 1 - y) * res + x) * 4;
+        if (revealAt && t < revealAt[y * res + x]!) {
+          this.rgba[o] = this.rgba[o + 1] = this.rgba[o + 2] = BLANK;
+          this.rgba[o + 3] = 255;
+          continue;
+        }
+        const [r, g, b] = meanAt(cumulative, res, s, x, y);
         this.rgba[o] = srgbEncode(r * exposure);
         this.rgba[o + 1] = srgbEncode(g * exposure);
         this.rgba[o + 2] = srgbEncode(b * exposure);

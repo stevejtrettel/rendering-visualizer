@@ -75,6 +75,12 @@ export const INFO: Record<string, DemoInfo> = {
       "Veach's pyramid, live: row d is every split (s, t) of a depth-d path between the light walk and the camera walk. Unweighted, each cell is its own bad estimate of the whole image; weighted, each keeps only what it is good at and the panel beside them is their exact sum — stated as a residual that reads ~1e-7 when the MIS weights are right.",
     section: 'Act 2 — many paths',
   },
+  'level-zero': {
+    title: 'Level zero',
+    blurb:
+      'Before path tracing: one ray leaves through each pixel of the film grid, stops at the first thing it hits, and the pixel takes that thing\'s colour. No light, no bounces. The same scene, camera and grid as pixel-grid, which is this figure with everything added.',
+    section: 'Act 0 — the renderer',
+  },
   'pixel-grid': {
     title: 'An image being computed',
     blurb:
