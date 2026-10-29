@@ -1,0 +1,10 @@
+{
+  "scene": "cornell-short",
+  "res": 960,
+  "seed": 0,
+  "integrator": {
+    "name": "pt-nee",
+    "maxBounces": 8
+  },
+  "spp": 1024
+}
