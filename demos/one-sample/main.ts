@@ -1,7 +1,9 @@
 /**
  * SHOWS: one path per pixel, every pixel at once, and the noisy image that
  * makes. one-path followed a single pixel's ray to the light and back; this
- * is the same thing for the whole film in lockstep.
+ * is the same thing for the whole film in lockstep. Laid out as one-path and
+ * the slides before it (screen-layout.ts): the screen at the left, the box
+ * at the right with the camera's eye, plane and frustum.
  *
  *   1. Every pixel's ray leaves together, one bounce per step, drawn dark:
  *      routes, nothing carried yet.
@@ -47,7 +49,7 @@ import { IndependentSampler } from '@/core/sampler/independent';
 import { pixelSeedKey } from '@/core/sampler/sampler';
 import { ArrayRecorder } from '@/trace/records';
 import { sceneToThree } from '@/viz/three-scene';
-import { ImagePlaneElement } from '@/viz/image-plane';
+import { screenLayout, SCREEN, BLANK } from '@/viz/screen-layout';
 import { FilmPanel } from '@/viz/film-panel';
 import { segments, setSegments } from '@/viz/lines';
 import { lampOutline, lampColor, styleShortBox } from '@/viz/short-box';
@@ -57,8 +59,6 @@ import * as THREE from 'three';
 
 // --- Figure spec -----------------------------------------------------------
 const SCENE: SceneName = 'cornell-short';
-const PLANE_DISTANCE = 1.4; // as level-zero, one-path and pixel-grid
-const INSET = { center: [-1.3, -0.42] as [number, number], height: 0.62 };
 const MAX_BOUNCES = 8;
 /** The paths before light travels them. */
 const DARK = new THREE.Color(0x2a2f35);
@@ -66,7 +66,6 @@ const DARK = new THREE.Color(0x2a2f35);
 const AIMED = new THREE.Color(C.ochreDeep);
 const LINE_GAIN = 4; // returning light, drawn brighter than the film (see header)
 const LINE_FLOOR = 0.35; // and never dimmer than this, so a lit path stays visible
-const BLANK = 18;
 // Timing, seconds.
 const OUT_STEP = 0.8; // one bounce, every path
 const DEAD_OPACITY = 0.12; // unlit paths, once they have faded back
@@ -86,6 +85,7 @@ const view = vizViewFor(SCENE);
 stage.camera.position.set(...view.eye);
 stage.controls?.target.set(...view.target);
 stage.controls?.update();
+const layout = screenLayout(stage, desc.camera, new THREE.Vector3(0, 4.35, 0));
 
 const { Le } = lampColor(desc);
 stage.add(lampOutline(desc));
@@ -98,15 +98,14 @@ stage.hud.add(caption);
 const outLines = segments({ width: 2 });
 const deadLines = segments({ width: 2, opacity: 0.999 });
 const backLines = segments({ width: 5, toneMapped: false }); // computed colours, shown as they are
-const planeGroup = new THREE.Group();
-stage.add(outLines, deadLines, backLines, planeGroup);
+stage.add(outLines, deadLines, backLines);
 
 // --- Controls --------------------------------------------------------------
 type Strategy = 'wait' | 'aim';
 const fromUrl = new URLSearchParams(location.search).get('strategy');
 const params = { strategy: (fromUrl === 'aim' ? 'aim' : 'wait') as Strategy, grid: 16, sample: 0 };
 ui.params.add(params, 'strategy', ['wait', 'aim']).onChange(trace);
-ui.params.add(params, 'grid', 2, 32, 1).name('film resolution').onChange(trace);
+ui.params.add(params, 'grid', 2, 64, 1).name('film resolution').onChange(trace);
 ui.params.add(params, 'sample', 0, 63, 1).onChange(trace);
 
 // --- The paths -------------------------------------------------------------
@@ -124,7 +123,6 @@ let paths: Path[] = [];
 let outEnd = 0;
 let backStart = 0;
 let litCount = 0;
-let plane: ImagePlaneElement | null = null;
 let inset: FilmPanel | null = null;
 let insetPixels: Uint8ClampedArray | null = null;
 let values = new Float32Array(0);
@@ -199,25 +197,12 @@ function trace(): void {
   const backEnd = backStart + maxBack * BACK_STEP;
   for (const p of paths) p.revealAt = p.lit ? backStart + (p.pts.length - 1) * BACK_STEP : backEnd;
 
-  plane?.dispose();
-  plane = new ImagePlaneElement(
-    {
-      camera: desc.camera,
-      distance: PLANE_DISTANCE,
-      res,
-      samples: 1,
-      dwell: Infinity,
-      cumulative: values,
-      highlight: null,
-      revealAt: Float32Array.from(paths, (p) => p.revealAt),
-    },
-    planeGroup,
-  );
   if (!inset || inset.width !== res) {
     inset?.dispose();
-    inset = new FilmPanel({ width: res, height: res, center: INSET.center, drawnHeight: INSET.height });
+    inset = new FilmPanel({ width: res, height: res, center: SCREEN.center, drawnHeight: SCREEN.height, border: false });
     insetPixels = new Uint8ClampedArray(res * res * 4);
     stage.hud.add(inset.group);
+    layout.drawGrid(res);
   }
   shownRevealed = -1;
   stage.duration = backEnd + HOLD;
@@ -260,7 +245,7 @@ function paintInset(t: number): void {
 const clamp01 = (u: number) => Math.min(1, Math.max(0, u));
 
 stage.frame((t) => {
-  plane?.drawAt(t);
+  layout.update();
   paintInset(t);
 
   const outPos: number[] = [];
