@@ -201,13 +201,21 @@ const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) =>
   center.clone().addScaledVector(right, x! * halfW).addScaledVector(up, y! * halfH),
 );
 
-/** The normal turned toward the eye, as the shading turns it. */
-const facingEye = (p: THREE.Vector3, n: THREE.Vector3) => (n.dot(eye.clone().sub(p)) < 0 ? n.clone().negate() : n.clone());
+/**
+ * The normal the shading uses. A wall is two-sided, so its normal is turned
+ * to the side the camera sees, into the room; a ball's is always outward.
+ * (Turning the balls' normals too flipped them on the part of each ball the
+ * scene's camera does not face, which the 3D view does see: a wrongly shaded
+ * cap on the front of each ball.)
+ */
+const isTwoSided = (name: string) => desc.primitives.find((p) => p.name === name)?.shape.kind === 'quad';
+const shadingNormal = (p: THREE.Vector3, n: THREE.Vector3, twoSided: boolean) =>
+  twoSided && n.dot(eye.clone().sub(p)) < 0 ? n.clone().negate() : n.clone();
 
 /** The brightness factor at a surface point (see header); the lamp is not shaded. */
 function brightnessAt(name: string, p: THREE.Vector3, n: THREE.Vector3): number {
   if (name === 'light') return 1;
-  return AMBIENT + (1 - AMBIENT) * Math.max(0, facingEye(p, n).dot(LAMP.clone().sub(p).normalize()));
+  return AMBIENT + (1 - AMBIENT) * Math.max(0, shadingNormal(p, n, isTwoSided(name)).dot(LAMP.clone().sub(p).normalize()));
 }
 
 const eyeDot = new THREE.Mesh(
@@ -331,6 +339,7 @@ const pieces: Piece[] = PIECES.map((name) => {
     uSweepDir: { value: sweep.dir },
     uAlbedo: { value: new THREE.Vector3(c.r, c.g, c.b) },
     uLit: { value: name !== 'light' ? 1 : 0 },
+    uTwoSided: { value: isTwoSided(name) ? 1 : 0 },
   };
   mat.clippingPlanes = frustum;
   mat.onBeforeCompile = (shader) => {
@@ -359,7 +368,7 @@ const pieces: Piece[] = PIECES.map((name) => {
     shader.fragmentShader = shader.fragmentShader
       .replace(
         'void main() {',
-        `uniform float uShade; uniform vec3 uAlbedo; uniform float uLit; uniform float uLitAll;
+        `uniform float uShade; uniform vec3 uAlbedo; uniform float uLit; uniform float uLitAll; uniform float uTwoSided;
         uniform vec3 uLamp; uniform float uAmb; uniform vec3 uEye; varying vec3 vWorldP; varying vec3 vWorldN;
         uniform float uGreyOn; uniform float uFront; uniform vec3 uSweepFrom; uniform vec3 uSweepDir;
         void main() {`,
@@ -368,7 +377,7 @@ const pieces: Piece[] = PIECES.map((name) => {
         '#include <tonemapping_fragment>',
         `#include <tonemapping_fragment>
         vec3 nW = normalize( vWorldN );
-        if ( dot( nW, uEye - vWorldP ) < 0.0 ) nW = -nW;
+        if ( uTwoSided > 0.5 && dot( nW, uEye - vWorldP ) < 0.0 ) nW = -nW;
         float lit = uAmb + ( 1.0 - uAmb ) * max( 0.0, dot( nW, normalize( uLamp - vWorldP ) ) );
         // light: grey behind the scan's front.
         float grey = uGreyOn * ( 1.0 - smoothstep( uFront - 0.06, uFront, dot( vWorldP - uSweepFrom, uSweepDir ) ) );
@@ -425,8 +434,8 @@ lightPoint.position.copy(LAMP).add(new THREE.Vector3(0, -0.12, 0));
 lightPoint.visible = SHADE !== 'flat';
 stage.add(lightPoint);
 
-function placeProbe(p: THREE.Vector3, normal: THREE.Vector3, x: number, y: number): void {
-  const n = facingEye(p, normal);
+function placeProbe(p: THREE.Vector3, normal: THREE.Vector3, twoSided: boolean, x: number, y: number): void {
+  const n = shadingNormal(p, normal, twoSided);
   const q = p.clone().addScaledVector(n, 0.01);
   const l = lightPoint.position.clone().sub(q).normalize();
   probeDot.position.copy(q);
@@ -509,7 +518,7 @@ let litImage = new Uint8Array(0);
 let greyImage = new Uint8Array(0);
 /** light: the colour image, which lifts off the screen and comes back. */
 let colourPanel: FilmPanel | null = null;
-let centres: ({ p: THREE.Vector3; n: THREE.Vector3 } | null)[] = [];
+let centres: ({ p: THREE.Vector3; n: THREE.Vector3; twoSided: boolean } | null)[] = [];
 /** light: the pixels in the order they are shaded. */
 let order: number[] = [];
 let shownFill = '';
@@ -629,7 +638,8 @@ function restart(): void {
     for (let y = 0; y < res; y++) {
       for (let x = 0; x < res; x++) {
         const hit = scene.aggregate.intersect(scene.camera.generateRay([x + 0.5, y + 0.5]));
-        centres.push(hit ? { p: v3(hit.p), n: v3(hit.ns).normalize() } : null);
+        const name = hit ? (hit.primitive as unknown as { name: string }).name : '';
+        centres.push(hit ? { p: v3(hit.p), n: v3(hit.ns).normalize(), twoSided: isTwoSided(name) } : null);
         names.push(hit ? (hit.primitive as unknown as { name: string }).name : null);
       }
     }
@@ -743,7 +753,7 @@ function frameLight(t: number): void {
     const zig = (u * ZIGZAGS) % 1;
     const w = Math.floor(u * ZIGZAGS) % 2 ? 1 - zig : zig;
     const { p, n } = piece.sweep.at(u * piece.sweep.length, w);
-    placeProbe(p, n, 0, 0);
+    placeProbe(p, n, isTwoSided(PIECES[scanning]!), 0, 0);
     planeCell.visible = false;
   }
 
@@ -821,7 +831,7 @@ function frameTrace(t: number): void {
   if (centre) {
     const i = order[current]!;
     setPolyline(ray, [eye, eye.clone().lerp(centre.p, reach)]);
-    placeProbe(centre.p, centre.n, i % params.grid, Math.floor(i / params.grid));
+    placeProbe(centre.p, centre.n, centre.twoSided, i % params.grid, Math.floor(i / params.grid));
     probeGroup.visible = elbow;
     planeCell.visible = true;
     screenCell.visible = true;
