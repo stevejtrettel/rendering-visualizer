@@ -19,10 +19,14 @@
  *
  * Which pixel: picked, not hand-placed. Among floor pixels (by what the
  * pixel's centre sees) whose average luminance at PICK_N paths lies in
- * PICK_BAND, none of whose paths exceeds PICK_MAX (no lamp in the pixel)
- * and at most PICK_DARK of whose paths found nothing (a pixel in a shadow
- * shows mostly black squares and a histogram that is one bar at zero), the
- * one with the largest spread relative to its average, away from the edge.
+ * PICK_BAND and none of whose paths exceeds PICK_MAX (no lamp in the
+ * pixel), away from the frame's edge: of the PICK_DARK share of them with
+ * the fewest paths that found nothing (black squares say little; Steve,
+ * 2026-10-29: too many of them hid what was happening), the one with the
+ * largest spread relative to its average.
+ *
+ * Click a pixel of the image to do it for that pixel instead: its MAX_N
+ * paths are traced on the spot and the figure starts again.
  *
  * Readability: colours are shown at exposure 1, clipped hue-preservingly at
  * 1, as on the slides before, so a very bright path shows as a saturated
@@ -43,6 +47,7 @@ import { cellInPanel } from '@/viz/film-cell';
 import { polyline, segments, setPolyline, setSegments } from '@/viz/lines';
 import { srgbEncode } from '@/render/film';
 import { label, setText } from '@/viz/text';
+import { ASPECT } from '@/viz/stage';
 import * as THREE from 'three';
 
 // --- Figure spec -----------------------------------------------------------
@@ -54,7 +59,7 @@ const MAX_BOUNCES = 8;
 const PICK_N = 64;
 const PICK_BAND = [0.15, 0.6];
 const PICK_MAX = 5;
-const PICK_DARK = 0.3;
+const PICK_DARK = 0.1; // the share of candidates, fewest black paths first, the pick is made from
 const MARGIN = 4; // pixels kept clear of the image's edge, so the chosen one is easy to point at
 const BINS = 24;
 const HIST_QUANTILE = 0.97;
@@ -128,11 +133,10 @@ let paths: { rgb: [number, number, number]; lum: number }[] = [];
 let histMax = 1;
 let histTop = 1; // the largest bin share at MAX_N, which sets the vertical scale
 
-const ready = (async () => {
-  const scene = buildScene(SCENES[SCENE], RES, RES);
-  const integrator = new AimAtLightPT({ maxBounces: MAX_BOUNCES });
-  const sampler = new IndependentSampler(0);
-  const sample = (x: number, y: number, s: number): [number, number, number] => {
+const scene = buildScene(SCENES[SCENE], RES, RES);
+const integrator = new AimAtLightPT({ maxBounces: MAX_BOUNCES });
+const sampler = new IndependentSampler(0);
+const sample = (x: number, y: number, s: number): [number, number, number] => {
     sampler.startPixelSample(pixelSeedKey(x, y, s));
     let r = 0;
     let g = 0;
@@ -144,8 +148,10 @@ const ready = (async () => {
       b += c.value.b;
     }
     return [r, g, b];
-  };
-  const luminance = ([r, g, b]: [number, number, number]) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const luminance = ([r, g, b]: [number, number, number]) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+const ready = (async () => {
 
   // The image at PICK_N paths, and each pixel's statistics there.
   const sum = new Float64Array(RES * RES * 3);
@@ -174,18 +180,23 @@ const ready = (async () => {
     const hit = scene.aggregate.intersect(scene.camera.generateRay([(i % RES) + 0.5, Math.floor(i / RES) + 0.5]));
     return (hit?.primitive as unknown as { name?: string } | undefined)?.name === 'floor';
   };
-  let pick = 0;
-  let best = -1;
+  const candidates: number[] = [];
   for (let i = 0; i < RES * RES; i++) {
     const [x, y] = [i % RES, Math.floor(i / RES)];
     if (x < MARGIN || y < MARGIN || x >= RES - MARGIN || y >= RES - MARGIN) continue; // not at the frame's edge
     if (!onFloor(i)) continue;
     const mean = sumY[i]! / PICK_N;
-    if (mean < PICK_BAND[0]! || mean > PICK_BAND[1]! || maxY[i]! > PICK_MAX || dark[i]! / PICK_N > PICK_DARK) continue;
+    if (mean < PICK_BAND[0]! || mean > PICK_BAND[1]! || maxY[i]! > PICK_MAX) continue;
+    candidates.push(i);
+  }
+  candidates.sort((a, b) => dark[a]! - dark[b]!);
+  let pick = candidates[0] ?? Math.floor((RES * RES) / 2);
+  let best = -1;
+  for (const i of candidates.slice(0, Math.max(1, Math.ceil(candidates.length * PICK_DARK)))) {
+    const mean = sumY[i]! / PICK_N;
     const sd = Math.sqrt(Math.max(0, (sumY2[i]! - PICK_N * mean * mean) / (PICK_N - 1)));
     if (sd / mean > best) [best, pick] = [sd / mean, i];
   }
-  const [px, py] = [pick % RES, Math.floor(pick / RES)];
 
   const rgba = new Uint8ClampedArray(RES * RES * 4);
   for (let i = 0; i < RES * RES; i++) {
@@ -194,12 +205,15 @@ const ready = (async () => {
     rgba[i * 4 + 3] = 255;
   }
   image.update(rgba);
+  choose(pick % RES, Math.floor(pick / RES));
+})();
+
+/** Do it for pixel (px, py): its MAX_N paths (the same ones the bar slide averages), and start again. */
+function choose(px: number, py: number): void {
   const outline = cellInPanel(IMAGE.center, IMAGE.height, RES, px, py);
   setPolyline(cellOutline, outline);
   const right = outline[1]!;
   setPolyline(leader, [[right[0], right[1] - IMAGE.height / RES / 2, 0], [MOSAIC.center[0] - MOSAIC.height / 2 - 0.02, MOSAIC.center[1], 0]]);
-
-  // That pixel's MAX_N paths, the same ones the bar slide averages.
   paths = [];
   for (let s = 0; s < MAX_N; s++) {
     const rgb = sample(px, py, s);
@@ -208,8 +222,31 @@ const ready = (async () => {
   const sorted = paths.map((p) => p.lum).sort((a, b) => a - b);
   histMax = Math.max(1e-3, sorted[Math.floor(HIST_QUANTILE * (MAX_N - 1))]!);
   histTop = Math.max(...histogram(MAX_N)) / MAX_N;
-  console.log(`[pixel-samples] pixel (${px}, ${py}), spread/mean ${best.toFixed(2)} at ${PICK_N} paths`);
-})();
+  shownN = -1;
+  stage.t = 0;
+  console.log(`[pixel-samples] pixel (${px}, ${py}): ${paths.filter((p) => p.lum === 0).length} of ${MAX_N} paths found nothing`);
+}
+
+// --- Clicking the image ------------------------------------------------------
+// The HUD spans x in [-ASPECT, ASPECT], y in [-1, 1] over the letterboxed
+// canvas. A click on a pixel of the image does it for that pixel.
+const canvas = stage.renderer.domElement;
+function cellUnder(e: PointerEvent): [number, number] | null {
+  const r = canvas.getBoundingClientRect();
+  const hx = (((e.clientX - r.left) / r.width) * 2 - 1) * ASPECT;
+  const hy = -(((e.clientY - r.top) / r.height) * 2 - 1);
+  const h = IMAGE.height;
+  const x = Math.floor(((hx - (IMAGE.center[0] - h / 2)) / h) * RES);
+  const y = Math.floor((((IMAGE.center[1] + h / 2) - hy) / h) * RES);
+  return x >= 0 && x < RES && y >= 0 && y < RES ? [x, y] : null;
+}
+canvas.addEventListener('pointerup', (e) => {
+  const cell = paths.length ? cellUnder(e) : null;
+  if (cell) choose(cell[0], cell[1]);
+});
+canvas.addEventListener('pointermove', (e) => {
+  canvas.style.cursor = cellUnder(e) ? 'pointer' : '';
+});
 
 /** A colour at exposure 1, clipped at 1 without changing its hue. */
 function shown(c: [number, number, number] | number[]): [number, number, number] {

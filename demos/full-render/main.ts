@@ -78,6 +78,8 @@ ui.params.add(params, 'image', ['live', 'converged']).onChange(show);
 // --- The live render ---------------------------------------------------------
 const bakeTo = Number(new URLSearchParams(location.search).get('bake')) || 0;
 let latest: { rgba: Uint8ClampedArray; spp: number } | null = null;
+const REFRESH_MS = 500;
+let lastShown = -Infinity;
 
 new WorkerPool({
   size: POOL_SIZE,
@@ -88,9 +90,18 @@ new WorkerPool({
   integrator: INTEGRATOR,
   maxSpp: bakeTo || LIVE_SPP,
   onUpdate: (u: PoolUpdate) => {
+    // Developing the merged film is the expensive part, so it is done at
+    // most every REFRESH_MS for the live view, and in bake mode only at the
+    // end: developing every pass at RES x RES piled up and crashed the page.
+    if (bakeTo) {
+      if (u.totalSpp >= bakeTo) bake(u.frame().rgba, u.totalSpp);
+      return;
+    }
+    const now = performance.now();
+    if (now - lastShown < REFRESH_MS && u.totalSpp < LIVE_SPP) return;
+    lastShown = now;
     latest = { rgba: u.frame().rgba, spp: u.totalSpp };
     if (params.image === 'live') show();
-    if (bakeTo && u.totalSpp >= bakeTo) bake(latest.rgba, u.totalSpp);
   },
 });
 
