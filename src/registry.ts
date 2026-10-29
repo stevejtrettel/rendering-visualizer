@@ -105,6 +105,12 @@ export const INFO: Record<string, DemoInfo> = {
       'The two things a picture is made from: the scene, a 3D model, and the screen, a blank grid of pixels on the camera frustum. The set-up of level-zero, before any ray is traced.',
     section: 'Act 1 — one path',
   },
+  'pixel-samples': {
+    title: 'One pixel, up close',
+    blurb:
+      "One pixel's paths arriving as dots on a number line, the running average through them, and two brackets: the spread s, which settles, and the standard error s / sqrt N, which keeps shrinking. The slide before variance.",
+    section: 'Act 1 — one path',
+  },
   variance: {
     title: 'How fast the noise goes',
     blurb:
