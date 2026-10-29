@@ -31,9 +31,9 @@ import * as THREE from 'three';
 const SCENE: SceneName = 'cornell-short';
 const SPP = 128;
 /** The screen, on the HUD (x in [-ASPECT, ASPECT], y in [-1, 1]). */
-const SCREEN = { center: [0.85, -0.02] as [number, number], height: 1.15 };
-/** Share of the frame width the 3D view slides left (stage.shiftView), freeing the right for the screen. */
-const SHIFT = 0.25;
+const SCREEN = { center: [-0.85, -0.02] as [number, number], height: 1.15 };
+/** Share of the frame width the 3D view slides right (stage.shiftView), freeing the left for the screen. */
+const SHIFT = -0.25;
 const BLANK = 18;
 // Timing, seconds.
 const SCENE_LABEL = [0.6, 1.4];
@@ -87,7 +87,7 @@ let pixels: Uint8ClampedArray | null = null;
 const gridLines = segments({ width: 1.5, opacity: 0.999 });
 stage.hud.add(gridLines);
 
-const params = { grid: 24 };
+const params = { grid: 64 };
 ui.params.add(params, 'grid', 2, 64, 1).name('film resolution').onChange(restart);
 
 /** The rendered image, sRGB bytes per pixel in raster order. */
@@ -116,10 +116,11 @@ function buildScreen(res: number): void {
     pos.push(cx + f, cy - h / 2, 0.02, cx + f, cy + h / 2, 0.02);
     pos.push(cx - h / 2, cy + f, 0.02, cx + h / 2, cy + f, 0.02);
   }
-  const grey = new THREE.Color(C.slateDeep);
+  const grey = new THREE.Color(C.slate);
   const col = new Float32Array(pos.length);
   for (let i = 0; i < col.length; i += 3) grey.toArray(col, i);
   setSegments(gridLines, new Float32Array(pos), col);
+  gridLines.material.linewidth = res > 32 ? 1 : 1.5;
 }
 
 // --- Rendering -------------------------------------------------------------
@@ -172,7 +173,11 @@ stage.frame((t) => {
   const fadeIn = ramp(t, SCREEN_IN);
   screen.group.visible = gridLines.visible = fadeIn > 0;
   ((screen.group.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 0.999 * fadeIn;
-  gridLines.material.opacity = 0.999 * fadeIn;
+  // On the blank screen the grid is the whole point; under a loaded image a
+  // fine grid would drown the picture in a mesh, so its lines dim as the
+  // image loads, the more so the finer the grid.
+  const under = Math.min(1, 24 / params.grid);
+  gridLines.material.opacity = 0.999 * fadeIn * (1 + (under - 1) * ramp(t, LOAD));
 
   // Pixel by pixel, in raster order.
   const n = params.grid * params.grid;
