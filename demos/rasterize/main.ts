@@ -119,7 +119,7 @@ const AMBIENT = 0.2;
 /** Projected one at a time, in this order: back to front, a true depth order for this scene. */
 const PIECES = ['back', 'left', 'right', 'floor', 'ceiling', 'light', 'ball', 'ballBlue'];
 /** The screen, on the HUD, and the 3D view's sideways slide: as scene-and-screen. */
-const SCREEN = { center: [-0.85, -0.02] as [number, number], height: 1.15 };
+const SCREEN = { center: [-0.85, -0.13] as [number, number], height: 1.15 };
 const SHIFT = -0.25;
 const PLANE_DISTANCE = 3;
 const DEPTH_KEEP = 0.03; // the flattened slab's thickness, relative to the scene's depth

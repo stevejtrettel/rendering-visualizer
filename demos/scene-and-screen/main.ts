@@ -33,7 +33,7 @@ import * as THREE from 'three';
 const SCENE: SceneName = 'cornell-short';
 const SPP = 128;
 /** The screen, on the HUD (x in [-ASPECT, ASPECT], y in [-1, 1]). */
-const SCREEN = { center: [-0.85, -0.02] as [number, number], height: 1.15 };
+const SCREEN = { center: [-0.85, -0.13] as [number, number], height: 1.15 };
 /** Share of the frame width the 3D view slides right (stage.shiftView), freeing the left for the screen. */
 const SHIFT = -0.25;
 const BLANK = 18;
@@ -46,7 +46,7 @@ const LOAD = [4.0, 7.0]; // the image loads, first pixel to last
 /** The arrow, HUD units: from beside the scene to beside the screen. */
 const ARROW_FROM = 0.5;
 const ARROW_TO = -0.15;
-const ARROW_Y = -0.02;
+const ARROW_Y = -0.13; // level with the screen's centre
 const HOLD = 3;
 
 // --- Stage -----------------------------------------------------------------

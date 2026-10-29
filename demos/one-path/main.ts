@@ -71,7 +71,7 @@ const SCENE: SceneName = 'cornell-short';
 // Layout as rasterize: the screen on the HUD, the 3D view slid right, the
 // plane out at PLANE_DISTANCE.
 const PLANE_DISTANCE = 3;
-const SCREEN = { center: [-0.85, -0.02] as [number, number], height: 1.15 };
+const SCREEN = { center: [-0.85, -0.13] as [number, number], height: 1.15 };
 const SHIFT = -0.25;
 const FAR = 9.5; // how far the frustum edges are drawn, from the eye
 const BLANK = 18;
