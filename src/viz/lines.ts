@@ -115,13 +115,35 @@ export function segments(opts: { width?: number; opacity?: number; toneMapped?: 
 /**
  * Replace a segment set's contents: `positions` holds 6 numbers per segment
  * (both ends), `colors` 6 per segment (an rgb per end). An empty set hides it.
+ *
+ * The buffers are written in place and `instanceCount` set, with the geometry
+ * replaced only when it must grow. Calling setPositions every frame is NOT
+ * equivalent: three caches an instanced geometry's maximum instance count the
+ * first time it is drawn (_maxInstanceCount) and never revisits it, so a set
+ * that starts with 256 segments and grows silently draws only the first 256.
  */
 export function setSegments(lines: LineSegments2, positions: Float32Array, colors: Float32Array): void {
-  lines.visible = positions.length > 0;
+  const count = positions.length / 6;
+  lines.visible = count > 0;
   if (!lines.visible) return;
-  const geom = lines.geometry as LineSegmentsGeometry;
-  geom.setPositions(positions);
-  geom.setColors(colors);
+  let geom = lines.geometry as LineSegmentsGeometry;
+  const capacity: number = lines.userData.capacity ?? 0;
+  if (count > capacity) {
+    const grown = Math.max(count, 2 * capacity, 256);
+    geom.dispose();
+    geom = new LineSegmentsGeometry();
+    geom.setPositions(new Float32Array(grown * 6));
+    geom.setColors(new Float32Array(grown * 6));
+    lines.geometry = geom;
+    lines.userData.capacity = grown;
+  }
+  const pos = (geom.getAttribute('instanceStart') as THREE.InterleavedBufferAttribute).data;
+  const col = (geom.getAttribute('instanceColorStart') as THREE.InterleavedBufferAttribute).data;
+  (pos.array as Float32Array).set(positions);
+  (col.array as Float32Array).set(colors);
+  pos.needsUpdate = true;
+  col.needsUpdate = true;
+  geom.instanceCount = count;
 }
 
 /** Sample `f` over [a, b] and draw it as a curve in the z = 0 plane. */
