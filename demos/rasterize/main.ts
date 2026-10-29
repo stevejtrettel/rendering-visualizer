@@ -73,6 +73,17 @@
  * shader). The point and its lines are drawn over the scene, not
  * hidden by it.
  *
+ * trace: the same shaded image again, made the other way round: by tracing
+ * out into the world instead of projecting the world in (Steve, 2026-10-29:
+ * the first path trace does this shading at its first step). From a blank
+ * screen, a ray leaves the eye through a pixel's centre, crosses the plane
+ * at that pixel and stops at the first surface; the elbow there measures
+ * the angle to the light; the pixel takes the shaded colour directly. The
+ * first TRACE_SLOW rays are slow, along a short wander from the top of the
+ * white ball (as light's); then every other pixel in raster order, faster
+ * and faster. The finished screen is light's image exactly (the same
+ * per-sample computation), and the 3D scene then takes on the shading.
+ *
  * The plane sits at PLANE_DISTANCE, further out than level-zero's film, so
  * the flattened scene is big enough to read. Both ramp to the finished
  * image and hold.
@@ -99,8 +110,11 @@ import * as THREE from 'three';
 // --- Figure spec -----------------------------------------------------------
 const SCENE: SceneName = 'cornell-short';
 const SPP = 8; // antialiasing only
-type Shade = 'flat' | 'light';
-const SHADE: Shade = new URLSearchParams(location.search).get('shade') === 'light' ? 'light' : 'flat';
+type Shade = 'flat' | 'light' | 'trace';
+const SHADE: Shade = (() => {
+  const s = new URLSearchParams(location.search).get('shade');
+  return s === 'light' || s === 'trace' ? s : 'flat';
+})();
 const AMBIENT = 0.2;
 /** Projected one at a time, in this order: back to front, a true depth order for this scene. */
 const PIECES = ['back', 'left', 'right', 'floor', 'ceiling', 'light', 'ball', 'ballBlue'];
@@ -126,6 +140,15 @@ const STOP = 1.2; // seconds at each stop of the wander
 const ARRIVE = 0.45; // into a stop, when its pixel turns grey
 const WANDER_REACH = 4 / 24; // how far one step of the wander may go, as a share of the screen
 const wanderEnd = WANDER_START + WANDER_STOPS * STOP;
+// trace:
+const TRACE_START = 1.0;
+const TRACE_SLOW = 5; // slow rays, along the wander
+const RAY_STEP = 2.2; // each slow ray: out to the scene, the elbow, the pixel
+const RAY_OUT = 0.8; // into a step, when the ray reaches the surface
+const RAY_FILL = 1.4; // and when its pixel is filled
+const traceSlowEnd = TRACE_START + TRACE_SLOW * RAY_STEP;
+const TRACE_FAST = [traceSlowEnd, traceSlowEnd + 10]; // every other pixel, raster order, eased in
+const TRACE_LIT_3D = [TRACE_FAST[1]! + 0.6, TRACE_FAST[1]! + 2.0];
 const FILL = [wanderEnd + 0.3, wanderEnd + 3.3]; // every other pixel, random order
 const BACK = [FILL[1]! + 0.5, FILL[1]! + 2.0]; // the colour image flies back onto the screen
 const MULTIPLY = [BACK[1]!, BACK[1]! + 0.8]; // and the two become the shaded image
@@ -323,7 +346,7 @@ const lightPoint = new THREE.Mesh(
   new THREE.MeshBasicMaterial({ color: C.ochreLight, toneMapped: false }),
 );
 lightPoint.position.copy(LAMP).add(new THREE.Vector3(0, -0.12, 0));
-lightPoint.visible = SHADE === 'light';
+lightPoint.visible = SHADE !== 'flat';
 stage.add(lightPoint);
 
 function placeProbe(p: THREE.Vector3, normal: THREE.Vector3, x: number, y: number): void {
@@ -505,7 +528,7 @@ function restart(): void {
     return { covers, flat, lit, grey };
   });
 
-  if (SHADE === 'light') {
+  if (SHADE !== 'flat') {
     const all = PIECES.map(() => 1);
     flatImage = new Uint8Array(res * res * 3);
     litImage = new Uint8Array(res * res * 3);
@@ -514,14 +537,15 @@ function restart(): void {
     greyImage = new Uint8Array(res * res * 3);
     composite(all, 'grey', greyImage, 3);
     colourPanel?.dispose();
-    colourPanel = new FilmPanel({ width: res, height: res, drawnHeight: SCREEN.height, border: true, opacity: 0.999 });
+    colourPanel = null;
+    if (SHADE === 'light') colourPanel = new FilmPanel({ width: res, height: res, drawnHeight: SCREEN.height, border: true, opacity: 0.999 });
     const rgba = new Uint8ClampedArray(res * res * 4);
     for (let i = 0; i < res * res; i++) {
       rgba.set(flatImage.subarray(i * 3, i * 3 + 3), i * 4);
       rgba[i * 4 + 3] = 255;
     }
-    colourPanel.update(rgba);
-    stage.hud.add(colourPanel.group);
+    colourPanel?.update(rgba);
+    if (colourPanel) stage.hud.add(colourPanel.group);
 
     // Where each pixel's centre sees the scene.
     const scene = buildScene(desc, res, res);
@@ -553,7 +577,7 @@ function restart(): void {
     });
     const reach = Math.max(1, Math.round(WANDER_REACH * res));
     const walk = [at];
-    while (walk.length < Math.min(WANDER_STOPS, res * res)) {
+    while (walk.length < Math.min(SHADE === 'trace' ? TRACE_SLOW : WANDER_STOPS, res * res)) {
       const [x0, y0] = [at % res, Math.floor(at / res)];
       const near: number[] = [];
       for (let dy = -reach; dy <= reach; dy++) {
@@ -568,14 +592,15 @@ function restart(): void {
       walk.push(at);
     }
     const rest = Array.from({ length: res * res }, (_, i) => i).filter((i) => !walk.includes(i));
-    for (let i = rest.length - 1; i > 0; i--) {
+    // trace keeps the rest in raster order, a render's scan; light shuffles it.
+    if (SHADE === 'light') for (let i = rest.length - 1; i > 0; i--) {
       const j = Math.floor(random() * (i + 1));
       [rest[i], rest[j]] = [rest[j]!, rest[i]!];
     }
     wanderStops = walk.length;
     order = [...walk, ...rest];
   }
-  stage.duration = SHADE === 'light' ? LIT_3D[1]! + HOLD : lastLands + HOLD;
+  stage.duration = (SHADE === 'light' ? LIT_3D[1]! : SHADE === 'trace' ? TRACE_LIT_3D[1]! : lastLands) + HOLD;
   stage.t = 0;
 }
 
@@ -586,6 +611,7 @@ const smooth = (u: number) => u * u * (3 - 2 * u);
 stage.frame((t) => {
   sceneLabel.position.set(...toHud(sceneTop), 0);
   if (SHADE === 'light') frameLight(t);
+  else if (SHADE === 'trace') frameTrace(t);
   else frameFlat(t);
 });
 
@@ -670,6 +696,67 @@ function frameLight(t: number): void {
       const under = scanned[i] ? greyImage[i * 3 + c]! : BLANK;
       pixels[i * 4 + c] = under + (litImage[i * 3 + c]! - under) * product;
     }
+    pixels[i * 4 + 3] = 255;
+  }
+  screen.update(pixels);
+}
+
+// The ray of trace: from the eye to where a pixel's centre sees the scene.
+const ray = polyline([[0, 0, 0], [0, 0, 1]], { color: C.bone, width: 5 });
+(ray.material as THREE.Material).depthTest = false;
+ray.renderOrder = 5;
+ray.visible = false;
+stage.add(ray);
+
+function frameTrace(t: number): void {
+  showCamera(1);
+  for (const piece of pieces) piece.shade.value = 1;
+  if (!screen || !pixels || !order.length) return;
+
+  // Which ray is out, how far it has got, and how many pixels are filled.
+  let current: number;
+  let reach = 1;
+  let elbow = true;
+  let done: number;
+  if (t < traceSlowEnd) {
+    current = Math.floor((t - TRACE_START) / RAY_STEP);
+    const local = t - TRACE_START - current * RAY_STEP;
+    reach = smooth(Math.min(1, local / RAY_OUT));
+    elbow = local >= RAY_OUT;
+    done = current < 0 ? 0 : current + (local >= RAY_FILL ? 1 : 0);
+  } else {
+    const u = ramp(t, TRACE_FAST);
+    done = TRACE_SLOW + Math.floor((order.length - TRACE_SLOW) * u * u);
+    current = Math.min(order.length - 1, done);
+  }
+  const live = current >= 0 && t < TRACE_FAST[1]!;
+  const centre = live ? centres[order[current]!] : null;
+  ray.visible = !!centre;
+  probeGroup.visible = screenCell.visible = !!centre && elbow;
+  if (centre) {
+    const i = order[current]!;
+    setPolyline(ray, [eye, eye.clone().lerp(centre.p, reach)]);
+    placeProbe(centre.p, centre.n, i % params.grid, Math.floor(i / params.grid));
+    probeGroup.visible = elbow;
+    planeCell.visible = true;
+    screenCell.visible = true;
+    probeDot.visible = probeNormal.visible = probeArrow.visible = probeToLamp.visible = wedge.visible = elbow;
+    probeGroup.visible = true;
+  }
+
+  // The grid lines give way as the image comes in; at the end the 3D scene
+  // takes the same shading.
+  const under = Math.min(1, 24 / params.grid);
+  gridLines.material.opacity = 0.999 * (1 + (under - 1) * ramp(t, TRACE_FAST));
+  shared.uLitAll.value = smooth(ramp(t, TRACE_LIT_3D));
+
+  const key = `${done}`;
+  if (key === shownFill) return;
+  shownFill = key;
+  const filled = new Uint8Array(params.grid * params.grid);
+  for (let k = 0; k < done; k++) filled[order[k]!] = 1;
+  for (let i = 0; i < filled.length; i++) {
+    for (let c = 0; c < 3; c++) pixels[i * 4 + c] = filled[i] ? litImage[i * 3 + c]! : BLANK;
     pixels[i * 4 + 3] = 255;
   }
   screen.update(pixels);
