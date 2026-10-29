@@ -2,9 +2,12 @@
  * SHOWS: rasterization, the map from scene to screen. Same layout as
  * scene-and-screen, the slide before: the screen square-on at the left, the
  * scene at the right. In the scene, the camera's eye and its image plane
- * appear in front of the box; then every point of the scene slides along its
- * line to the eye until the whole scene lies flat on the plane, and the
- * screen fills with the image that landed there.
+ * appear in front of the box; then the scene is projected piece by piece,
+ * back to front (back wall, side walls, floor, ceiling, lamp, the two
+ * balls): each piece slides as a whole along the lines to the eye until it
+ * lies flat on the plane, and as it lands its pixels appear on the screen,
+ * painted over what is already there. One piece at a time, so the map from
+ * scene to screen can be followed (Steve, 2026-10-29).
  *
  * What is drawn is what a rasterizer computes:
  *
@@ -17,11 +20,17 @@
  *     overlap to the order the meshes happen to be drawn in);
  *   - clipping: only what the camera sees is projected; the rest of the
  *     scene is cut away at the frustum when the plane appears;
- *   - colour: flat surface colour, no lighting. As the scene flattens its
- *     shading fades to that flat colour, and the screen's image is
- *     FirstHitColor, the colour of the nearest surface along each pixel's
- *     ray: the same colours (three-scene and first-hit share them), and the
- *     same image level-zero builds ray by ray later.
+ *   - colour: flat surface colour, no lighting. As a piece flattens its
+ *     shading fades to that flat colour. On the screen each piece is
+ *     painted where it covers: the piece is rendered alone at SPP jittered
+ *     samples a pixel (the same rays for every piece), and each SAMPLE
+ *     takes the colour of the last landed piece covering it, the pixel the
+ *     mean of its samples. (Blending whole-pixel coverages instead left dark
+ *     seams where two pieces share a pixel.) Back to front
+ *     here is a true depth order, so the finished screen is exactly
+ *     FirstHitColor's image, the colour of the nearest surface along each
+ *     pixel's ray, which level-zero builds ray by ray later. The colours
+ *     are the ones three-scene draws (first-hit shares them).
  *
  * The plane sits at PLANE_DISTANCE, further out than level-zero's film, so
  * the flattened scene is big enough to read. The figure ramps to the
@@ -33,9 +42,11 @@ import { SCENES, type SceneName } from '@/scenes/registry';
 import { vizViewFor } from '@/viz/views';
 import { buildScene } from '@/core/scene/scene';
 import { FirstHitColor, surfaceColors } from '@/core/integrators/first-hit';
+import { Color } from '@/core/math/color';
 import { IndependentSampler } from '@/core/sampler/independent';
-import { Film, srgbEncode } from '@/render/film';
-import { renderPass } from '@/render/driver';
+import { srgbEncode } from '@/render/film';
+import { pixelSeedKey } from '@/core/sampler/sampler';
+import { NULL_RECORDER } from '@/trace/recorder';
 import { sceneToThree } from '@/viz/three-scene';
 import { imagePlaneFrame } from '@/viz/image-plane';
 import { FilmPanel } from '@/viz/film-panel';
@@ -46,7 +57,9 @@ import * as THREE from 'three';
 
 // --- Figure spec -----------------------------------------------------------
 const SCENE: SceneName = 'cornell-short';
-const SPP = 16; // antialiasing only: the image is flat colour
+const SPP = 8; // antialiasing only: the image is flat colour
+/** Projected one at a time, in this order: back to front, a true depth order for this scene. */
+const PIECES = ['back', 'left', 'right', 'floor', 'ceiling', 'light', 'ball', 'ballBlue'];
 /** The screen, on the HUD, and the 3D view's sideways slide: as scene-and-screen. */
 const SCREEN = { center: [-0.85, -0.02] as [number, number], height: 1.15 };
 const SHIFT = -0.25;
@@ -56,8 +69,11 @@ const FAR = 9.5; // how far the frustum edges are drawn, from the eye
 const BLANK = 18;
 // Timing, seconds.
 const PLANE_IN = [0.6, 1.4]; // eye, plane and frustum appear; the unseen scene is cut away
-const FLATTEN = [2.0, 5.0];
-const FILL = [5.2, 6.2]; // the screen takes the image
+const FIRST_PIECE = 2.0;
+const PIECE = 0.9; // one piece's flight
+const STAGGER = 0.7; // between one piece leaving and the next
+const LAND = 0.3; // a landed piece's pixels fade in over this
+const lastLands = FIRST_PIECE + (PIECES.length - 1) * STAGGER + PIECE + LAND;
 const HOLD = 3;
 
 // --- Stage -----------------------------------------------------------------
@@ -120,20 +136,27 @@ const frustumConstants = frustum.map((p) => p.constant);
 const OFF = 1000;
 
 // --- Flattening, in the vertex shader --------------------------------------
-const uniforms = {
-  uFlat: { value: 0 },
+const shared = {
   uEye: { value: eye.clone() },
   uFwd: { value: forward.clone() },
   uD: { value: PLANE_DISTANCE },
   uK: { value: DEPTH_KEEP },
 };
-const lit: { mat: THREE.MeshStandardMaterial; color: THREE.Color; emissive: THREE.Color }[] = [];
-sceneGroup.traverse((o) => {
-  if (!(o instanceof THREE.Mesh)) return;
-  const mat = o.material as THREE.MeshStandardMaterial;
+interface Piece {
+  mat: THREE.MeshStandardMaterial;
+  color: THREE.Color;
+  emissive: THREE.Color;
+  flat: { value: number };
+}
+// sceneToThree adds one mesh per primitive, in order.
+const pieces: Piece[] = PIECES.map((name) => {
+  const i = desc.primitives.findIndex((p) => p.name === name);
+  if (i < 0) throw new Error(`no primitive ${name}`);
+  const mat = (sceneGroup.children[i] as THREE.Mesh).material as THREE.MeshStandardMaterial;
+  const flat = { value: 0 };
   mat.clippingPlanes = frustum;
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms);
+    Object.assign(shader.uniforms, shared, { uFlat: flat });
     shader.vertexShader = shader.vertexShader
       .replace(
         'void main() {',
@@ -151,16 +174,16 @@ sceneGroup.traverse((o) => {
       );
   };
   mat.needsUpdate = true;
-  lit.push({ mat, color: mat.color.clone(), emissive: mat.emissive.clone() });
+  return { mat, color: mat.color.clone(), emissive: mat.emissive.clone(), flat };
 });
 
-/** Shading fades to flat surface colour: the lit part out, the same colour as emission in. */
-function setFlatColour(f: number): void {
-  for (const { mat, color, emissive } of lit) {
-    if (emissive.r + emissive.g + emissive.b > 0) continue; // the lamp already shows its own colour
-    mat.color.copy(color).multiplyScalar(1 - f);
-    mat.emissive.copy(color).multiplyScalar(f);
-  }
+/** A piece flattened by f: on its way to the plane, its shading fading to flat surface colour. */
+function setFlat(piece: Piece, f: number): void {
+  piece.flat.value = f;
+  const { mat, color, emissive } = piece;
+  if (emissive.r + emissive.g + emissive.b > 0) return; // the lamp already shows its own colour
+  mat.color.copy(color).multiplyScalar(1 - f);
+  mat.emissive.copy(color).multiplyScalar(f);
 }
 
 // --- Labels ----------------------------------------------------------------
@@ -198,8 +221,9 @@ stage.hud.add(gridLines);
 const params = { grid: 64 };
 ui.params.add(params, 'grid', 2, 64, 1).name('film resolution').onChange(restart);
 
-let image: Uint8ClampedArray | null = null;
-let shownFill = -1;
+/** Per piece: its flat colour (sRGB bytes) and, per pixel, which of the SPP samples it covers (a bitmask). */
+let layers: { rgb: [number, number, number]; covers: Uint8Array }[] = [];
+let shownFill = '';
 
 function buildScreen(res: number): void {
   screen?.dispose();
@@ -225,22 +249,27 @@ function buildScreen(res: number): void {
 function restart(): void {
   const res = params.grid;
   buildScreen(res);
-  shownFill = -1;
-  const scene = buildScene(desc, res, res);
-  const integrator = new FirstHitColor(surfaceColors(desc));
+  shownFill = '';
+  const colors = surfaceColors(desc);
   const sampler = new IndependentSampler(0);
-  const film = new Film(res, res);
-  for (let s = 0; s < SPP; s++) renderPass(scene, integrator, sampler, film, s);
-  image = new Uint8ClampedArray(res * res * 3);
-  for (let y = 0; y < res; y++) {
-    for (let x = 0; x < res; x++) {
-      const [r, g, b] = film.pixel(x, y);
-      const o = (y * res + x) * 3;
-      image[o] = srgbEncode(r);
-      image[o + 1] = srgbEncode(g);
-      image[o + 2] = srgbEncode(b);
+  // Each piece rendered alone: which samples of each pixel it covers.
+  layers = PIECES.map((name) => {
+    const alone = { ...desc, primitives: desc.primitives.filter((p) => p.name === name) };
+    const integrator = new FirstHitColor(new Map([[name, new Color(1, 1, 1)]]));
+    const scene = buildScene(alone, res, res);
+    const covers = new Uint8Array(res * res);
+    for (let y = 0; y < res; y++) {
+      for (let x = 0; x < res; x++) {
+        for (let s = 0; s < SPP; s++) {
+          sampler.startPixelSample(pixelSeedKey(x, y, s));
+          const [c] = integrator.sampleContributions([x, y], sampler, scene, NULL_RECORDER);
+          if (c && c.value.r > 0) covers[y * res + x]! |= 1 << s;
+        }
+      }
     }
-  }
+    const c = colors.get(name)!;
+    return { rgb: [srgbEncode(c.r), srgbEncode(c.g), srgbEncode(c.b)], covers };
+  });
   stage.t = 0;
 }
 
@@ -260,28 +289,50 @@ stage.frame((t) => {
   beyond.material.opacity = 0.3 * shown;
   frustum.forEach((p, i) => (p.constant = frustumConstants[i]! + (shown > 0 ? 0 : OFF)));
 
-  // The scene flattens onto the plane, its shading going flat as it lands.
-  const f = smooth(ramp(t, FLATTEN));
-  uniforms.uFlat.value = f;
-  setFlatColour(f);
+  // The pieces fly one at a time, each flattening onto the plane, and
+  // each appears on the screen as it lands, over the ones before.
+  const landed = pieces.map((piece, k) => {
+    const start = FIRST_PIECE + k * STAGGER;
+    setFlat(piece, smooth(ramp(t, [start, start + PIECE])));
+    return ramp(t, [start + PIECE, start + PIECE + LAND]);
+  });
 
-  // The screen takes the image.
-  if (!screen || !pixels || !image) return;
-  const fill = ramp(t, FILL);
+  if (!screen || !pixels || !layers.length) return;
   const under = Math.min(1, 24 / params.grid);
-  gridLines.material.opacity = 0.999 * (1 + (under - 1) * fill);
-  const key = Math.round(fill * 64);
+  gridLines.material.opacity = 0.999 * (1 + (under - 1) * ramp(t, [FIRST_PIECE + PIECE, lastLands]));
+  const key = landed.map((a) => Math.round(a * 32)).join();
   if (key === shownFill) return;
   shownFill = key;
   const n = params.grid * params.grid;
   for (let i = 0; i < n; i++) {
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    for (let s = 0; s < SPP; s++) {
+      // Painted back to front: each landed piece over what is there.
+      let sr = BLANK;
+      let sg = BLANK;
+      let sb = BLANK;
+      layers.forEach(({ rgb, covers }, k) => {
+        const a = covers[i]! & (1 << s) ? landed[k]! : 0;
+        if (a <= 0) return;
+        sr += (rgb[0] - sr) * a;
+        sg += (rgb[1] - sg) * a;
+        sb += (rgb[2] - sb) * a;
+      });
+      r += sr;
+      g += sg;
+      b += sb;
+    }
     const o = i * 4;
-    for (let c = 0; c < 3; c++) pixels[o + c] = BLANK + (image[i * 3 + c]! - BLANK) * fill;
+    pixels[o] = r / SPP;
+    pixels[o + 1] = g / SPP;
+    pixels[o + 2] = b / SPP;
     pixels[o + 3] = 255;
   }
   screen.update(pixels);
 });
 
-stage.duration = FILL[1]! + HOLD;
+stage.duration = lastLands + HOLD;
 stage.start();
 restart();
