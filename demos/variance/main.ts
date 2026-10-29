@@ -104,6 +104,9 @@ const bars = new THREE.InstancedMesh(
 );
 bars.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 stage.add(bars);
+// Hidden until the numbers are in: before that the floor is blank and every
+// bar sits at the origin at full height, which reads as one black slab.
+floor.visible = bars.visible = false;
 /** Where pixel (x, y) stands: raster y grows away from the viewer's near edge to the far one. */
 const cellCentre = (x: number, y: number) => new THREE.Vector3(-SIZE / 2 + (x + 0.5) * cell, 0, -SIZE / 2 + (y + 0.5) * cell);
 
@@ -227,6 +230,7 @@ const colour = new THREE.Color();
 
 stage.frame((t) => {
   if (ON_GRAPH.some((k) => !meanError[k])) return;
+  floor.visible = bars.visible = true;
   const n = nAt(t);
   if (n === shownN) return;
   shownN = n;
