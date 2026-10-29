@@ -164,7 +164,9 @@ function renderSome(): void {
     rgba[i * 4 + 3] = 255;
   }
   screen.update(rgba);
-  setText(caption, pass ? `${pass.toLocaleString('en-US')} path${pass === 1 ? '' : 's'} per pixel` : '');
+  // The average count, not completed passes, so it keeps up with the picture.
+  const perPixel = pass + cursor / order.length;
+  setText(caption, perPixel < 10 ? `${perPixel.toFixed(1)} paths per pixel` : `${Math.floor(perPixel).toLocaleString('en-US')} paths per pixel`);
 }
 
 /** The camera moved: draw it there, and throw the picture away. */
