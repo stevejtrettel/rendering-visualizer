@@ -22,7 +22,13 @@ const MATERIAL_ROW_VIEW: VizView = { eye: [4.5, 3.2, 11], target: [0, 0.8, 0] };
 // out and would leave this scene a thumbnail in the middle of the frame.
 const MATERIAL_TEST_VIEW: VizView = { eye: [2.2, 2.9, 6.1], target: [0, 1.0, 0.4] };
 
+// cornell-short is a cube with an open front and the camera outside it: a
+// near-head-on view, offset to one side, looks in through the opening with
+// the eye and film in front of it (a side view hides one wall's interior).
+const CORNELL_SHORT_VIEW: VizView = { eye: [6.4, 4.6, 13.2], target: [0, 1.8, 2.4] };
+
 export function vizViewFor(name: string): VizView {
+  if (name === 'cornell-short') return CORNELL_SHORT_VIEW;
   if (name === 'open-stage') return OPEN_STAGE_VIEW;
   if (name === 'material-row') return MATERIAL_ROW_VIEW;
   if (name === 'material-test') return MATERIAL_TEST_VIEW;

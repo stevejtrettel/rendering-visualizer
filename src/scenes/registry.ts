@@ -8,7 +8,7 @@
 // fetched OBJ models) lives in ./assets.ts, and the three.js vantage points
 // live in src/viz/views.ts.
 import type { MaterialDescription, SceneDescription } from '../core/scene/scene';
-import { CORNELL } from './cornell';
+import { CORNELL, CORNELL_SHORT } from './cornell';
 const CORNELL_GLASS: SceneDescription = {
   camera: CORNELL.camera,
   primitives: [
@@ -304,6 +304,7 @@ export function materialTestScene(material: MaterialDescription): SceneDescripti
 
 export const SCENES = {
   cornell: CORNELL,
+  'cornell-short': CORNELL_SHORT,
   'cornell-glass': CORNELL_GLASS,
   'cornell-caustic': CORNELL_CAUSTIC,
   'cornell-delta': CORNELL_DELTA,

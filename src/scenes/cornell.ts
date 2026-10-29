@@ -61,3 +61,26 @@ export const CORNELL: SceneDescription = {
     { name: 'ballBlue', shape: { kind: 'sphere', center: [0.9, 0.55, 0.6], radius: 0.55 }, material: { kind: 'conductor', f0: [0.35, 0.45, 0.8], roughness: 0.3 } },
   ],
 };
+
+// SHORT, for level-zero (Steve, 2026-10-28: "much thinner and not as
+// deep"): the same room cut to a cube, interior [-2,2] x [0,4] x [-2,2],
+// with the front left OPEN and the CPU camera outside it — so "a piece of
+// film in front of the scene and a viewer behind it" is literally the
+// picture. Derived from CORNELL, so materials and lamp cannot drift: the
+// front wall is dropped and the four long quads shortened from 13 to 4.
+// The frustum fits the opening (at z = 2 its half-extent is
+// 5 tan 20 deg = 1.82 < 2), so every camera ray enters the box and hits.
+const SHORT_DEPTH = 4;
+const shorten = (v: readonly [number, number, number]): [number, number, number] =>
+  v[2] === 13 ? [v[0], v[1], SHORT_DEPTH] : [v[0], v[1], v[2]];
+export const CORNELL_SHORT: SceneDescription = {
+  ...CORNELL,
+  camera: { eye: [0, 2, 7], lookAt: [0, 2, 0], up: [0, 1, 0], fovDegrees: 40 },
+  primitives: CORNELL.primitives
+    .filter((p) => p.name !== 'front')
+    .map((p) =>
+      p.shape.kind === 'quad'
+        ? { ...p, shape: { ...p.shape, e1: shorten(p.shape.e1), e2: shorten(p.shape.e2) } }
+        : p,
+    ),
+};
