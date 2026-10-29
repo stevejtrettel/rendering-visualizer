@@ -105,6 +105,18 @@ export const INFO: Record<string, DemoInfo> = {
       'The two things a picture is made from: the scene, a 3D model, and the screen, a blank grid of pixels on the camera frustum. The set-up of level-zero, before any ray is traced.',
     section: 'Act 1 — one path',
   },
+  variance: {
+    title: 'How fast the noise goes',
+    blurb:
+      "The image tilted back like a floor with a bar on every pixel, as tall as its standard error, shrinking as paths come in; beside it the image's mean standard error against paths per pixel, with c / sqrt(N) dashed.",
+    section: 'Act 1 — one path',
+  },
+  'full-render': {
+    title: 'The full render',
+    blurb:
+      'The short box rendered full size on every core, refining as you watch, and the converged image it is heading for, saved so it shows at once.',
+    section: 'Act 1 — one path',
+  },
   'many-samples': {
     title: 'Many paths per pixel',
     blurb:
