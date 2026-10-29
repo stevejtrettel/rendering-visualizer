@@ -3,7 +3,9 @@
  * 3D model (the short open box of level-zero, one-path and one-sample), and
  * a screen, a grid of pixels drawn square-on beside it. The screen starts
  * blank; then an image of the scene loads onto it, pixel by pixel in raster
- * order: rendering, before anything is said about how.
+ * order: rendering, before anything is said about how. An arrow from the
+ * scene to the screen, labelled "render", appears just before the image
+ * loads (Steve: the pullback of the scene to the screen).
  *
  * The image is real: the scene's own camera, rendered by path tracing with
  * light sampling (pt-nee) at SPP samples per pixel, exposure 1. The grid
@@ -22,7 +24,7 @@ import { Film, srgbEncode } from '@/render/film';
 import { renderPass } from '@/render/driver';
 import { sceneToThree } from '@/viz/three-scene';
 import { FilmPanel } from '@/viz/film-panel';
-import { segments, setSegments } from '@/viz/lines';
+import { polyline, segments, setSegments } from '@/viz/lines';
 import { label } from '@/viz/text';
 import { ASPECT } from '@/viz/stage';
 import * as THREE from 'three';
@@ -39,7 +41,12 @@ const BLANK = 18;
 const SCENE_LABEL = [0.6, 1.4];
 const SCREEN_IN = [1.6, 2.4];
 const SCREEN_LABEL = [2.0, 2.8];
-const LOAD = [3.4, 6.4]; // the image loads, first pixel to last
+const ARROW = [3.0, 3.6]; // "render" fades in
+const LOAD = [4.0, 7.0]; // the image loads, first pixel to last
+/** The arrow, HUD units: from beside the scene to beside the screen. */
+const ARROW_FROM = 0.5;
+const ARROW_TO = -0.15;
+const ARROW_Y = -0.02;
 const HOLD = 3;
 
 // --- Stage -----------------------------------------------------------------
@@ -80,6 +87,25 @@ function toHud(p: THREE.Vector3): [number, number] {
   const ndc = p.clone().project(stage.camera);
   return [ndc.x * ASPECT, ndc.y];
 }
+
+// The render arrow, scene to screen, with its name above it.
+const head = 0.07;
+const arrow = [
+  polyline([[ARROW_FROM, ARROW_Y, 0], [ARROW_TO, ARROW_Y, 0]], { color: C.bone, width: 4, opacity: 0.999 }),
+  polyline(
+    [[ARROW_TO + head, ARROW_Y + head, 0], [ARROW_TO, ARROW_Y, 0], [ARROW_TO + head, ARROW_Y - head, 0]],
+    { color: C.bone, width: 4, opacity: 0.999 },
+  ),
+];
+const renderLabel = label('render', {
+  size: 0.07,
+  color: C.bone,
+  anchorX: 'center',
+  anchorY: 'bottom',
+  opacity: 0.999,
+  position: [(ARROW_FROM + ARROW_TO) / 2, ARROW_Y + 0.05, 0],
+});
+stage.hud.add(...arrow, renderLabel);
 
 // --- The screen ------------------------------------------------------------
 let screen: FilmPanel | null = null;
@@ -168,6 +194,12 @@ stage.frame((t) => {
   sceneLabel.position.set(...toHud(sceneTop), 0);
   sceneLabel.material.opacity = 0.999 * ramp(t, SCENE_LABEL);
   screenLabel.material.opacity = 0.999 * ramp(t, SCREEN_LABEL);
+  const a = ramp(t, ARROW);
+  for (const line of arrow) {
+    line.visible = a > 0;
+    line.material.opacity = 0.999 * a;
+  }
+  renderLabel.material.opacity = 0.999 * a;
 
   if (!screen || !pixels) return;
   const fadeIn = ramp(t, SCREEN_IN);
