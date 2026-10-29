@@ -13,11 +13,24 @@
  * What is left is a single sample per pixel: most of the film black, a
  * scatter of lit pixels. The counter says how many paths found the light.
  *
- * Every path is a real sample of plain unidirectional path tracing (BSDF
- * sampling only, as in one-path), cut at the lamp. Colours follow one-path's
- * rule, Le * beta_n / beta_k from the walk's recorded throughputs, shown
- * relative to the lamp's brightest channel; a pixel shows Le * beta_n on the
- * same scale. `sample` draws a different set of paths.
+ * Two strategies (`strategy`, or ?strategy=aim in the URL):
+ *
+ *   wait  plain unidirectional path tracing, as in one-path: bounce by BSDF
+ *         sampling and count the light only if a bounce happens to land on
+ *         the lamp. Most never do.
+ *   aim   pt-aim: bounce a random number of times N, then send one ray
+ *         straight at a point on the lamp (drawn amber); if nothing blocks
+ *         it, light comes back. Weighted by 1/pmf(N), it converges to the
+ *         same image (tests/pt-aim.test.ts), and far more paths find light.
+ *
+ * Brightness is real: a pixel shows its sample's radiance at exposure 1 (the
+ * true image is mostly 0.1 .. 0.7 here), clipped hue-preservingly at 1. So a
+ * lucky wait-path that lands on the lamp shows as a saturated pixel (its
+ * value is many times the true one) and an aimed path as an ordinary one.
+ * Light along a path is shown the same way: on segment k it is the radiance
+ * leaving vertex k toward the eye, C / beta_k with C the sample's value
+ * (estimator weight removed), and the aimed ray carries the lamp's own Le.
+ * `sample` draws a different set of paths.
  */
 
 import { createStage, createUI, C } from '@';
@@ -25,6 +38,7 @@ import { SCENES, type SceneName } from '@/scenes/registry';
 import { vizViewFor } from '@/viz/views';
 import { buildScene } from '@/core/scene/scene';
 import { UnidirectionalPT } from '@/core/integrators/pt';
+import { AimAtLightPT } from '@/core/integrators/pt-aim';
 import { IndependentSampler } from '@/core/sampler/independent';
 import { pixelSeedKey } from '@/core/sampler/sampler';
 import { ArrayRecorder } from '@/trace/records';
@@ -44,6 +58,8 @@ const INSET = { center: [-1.3, -0.42] as [number, number], height: 0.62 };
 const MAX_BOUNCES = 8;
 /** The paths before light travels them. */
 const DARK = new THREE.Color(0x2a2f35);
+/** The aimed ray before light comes back: a direction chosen on purpose. */
+const AIMED = new THREE.Color(C.ochreDeep);
 const BLANK = 18;
 // Timing, seconds.
 const OUT_STEP = 0.8; // one bounce, every path
@@ -65,7 +81,7 @@ stage.camera.position.set(...view.eye);
 stage.controls?.target.set(...view.target);
 stage.controls?.update();
 
-const { Le, relative } = lampColor(desc);
+const { Le } = lampColor(desc);
 stage.add(lampOutline(desc));
 
 const caption = label('', { size: 0.06, color: C.bone, anchorX: 'center', anchorY: 'top', position: [0, -0.8, 0] });
@@ -80,7 +96,10 @@ const planeGroup = new THREE.Group();
 stage.add(outLines, deadLines, backLines, planeGroup);
 
 // --- Controls --------------------------------------------------------------
-const params = { grid: 16, sample: 0 };
+type Strategy = 'wait' | 'aim';
+const fromUrl = new URLSearchParams(location.search).get('strategy');
+const params = { strategy: (fromUrl === 'aim' ? 'aim' : 'wait') as Strategy, grid: 16, sample: 0 };
+ui.params.add(params, 'strategy', ['wait', 'aim']).onChange(trace);
 ui.params.add(params, 'grid', 2, 32, 1).name('film resolution').onChange(trace);
 ui.params.add(params, 'sample', 0, 63, 1).onChange(trace);
 
@@ -88,7 +107,9 @@ ui.params.add(params, 'sample', 0, 63, 1).onChange(trace);
 interface Path {
   pts: THREE.Vector3[]; // camera .. last vertex (on the lamp, if lit)
   lit: boolean;
-  /** Colour on segment k (vertex k-1 to k), relative to the lamp; [0] unused. */
+  /** Index of the aimed segment (the shadow ray), or 0 if there is none. */
+  aimed: number;
+  /** Light on segment k (vertex k-1 to k), as displayed; [0] unused. */
   color: THREE.Color[];
   /** When this pixel's light arrives (lit) or the film completes (unlit). */
   revealAt: number;
@@ -105,7 +126,9 @@ let values = new Float32Array(0);
 function trace(): void {
   const res = params.grid;
   const scene = buildScene(desc, res, res);
-  const integrator = new UnidirectionalPT({ maxBounces: MAX_BOUNCES, rrStartDepth: 99, sampleNEE: false });
+  const integrator = params.strategy === 'aim'
+    ? new AimAtLightPT({ maxBounces: MAX_BOUNCES })
+    : new UnidirectionalPT({ maxBounces: MAX_BOUNCES, rrStartDepth: 99, sampleNEE: false });
   const sampler = new IndependentSampler(0);
   paths = [];
   values = new Float32Array(res * res * 3);
@@ -121,32 +144,47 @@ function trace(): void {
       recorder.beginPath(key);
       integrator.sampleContributions([x, y], sampler, scene, recorder);
       recorder.endPath();
-      let vs = recorder.records[0]!.vertices;
+      const record = recorder.records[0]!;
+      let vs = record.vertices;
+      const C = new THREE.Color(0, 0, 0);
+      for (const c of record.contributions) if (c.kind === 'sample') C.add(new THREE.Color(...c.value));
+      const lit = C.r > 0 || C.g > 0 || C.b > 0;
+      const weight = record.lengthDraw?.pmf ?? 1; // undo 1/pmf: show the light, not the estimator
+
+      // The route: plain PT is cut where it lands on the lamp; an aimed path
+      // ends with its shadow ray, at the lamp or at whatever blocked it.
       const hit = vs.findIndex((v, i) => i > 0 && v.primitiveName === 'light');
-      const lit = hit > 0;
-      if (lit) vs = vs.slice(0, hit + 1);
-      const n = vs.length - 1;
+      if (hit > 0) vs = vs.slice(0, hit + 1);
+      const pts = vs.map((v) => new THREE.Vector3(...v.p));
+      const shadow = hit > 0 ? undefined : record.shadowRays[0];
+      let aimed = 0;
+      if (shadow) {
+        pts.push(new THREE.Vector3(...(shadow.blockedAt ?? shadow.to)));
+        aimed = pts.length - 1;
+      }
+
+      const n = pts.length - 1;
       const color: THREE.Color[] = [new THREE.Color()];
       if (lit) {
         litCount++;
-        const bn = vs[n]!.beta;
         for (let k = 1; k <= n; k++) {
+          if (k === aimed || k > vs.length - 1) {
+            color.push(display(Le.clone()));
+            continue;
+          }
           const bk = vs[k]!.beta;
-          const ch = (i: 0 | 1 | 2) => (bk[i] > 0 ? bn[i] / bk[i] : 0);
-          color.push(new THREE.Color(
-            Math.min(1, relative.r * ch(0)),
-            Math.min(1, relative.g * ch(1)),
-            Math.min(1, relative.b * ch(2)),
-          ));
+          const ch = (v: number, b: number) => (b > 0 ? (v * weight) / b : 0);
+          color.push(display(new THREE.Color(ch(C.r, bk[0]), ch(C.g, bk[1]), ch(C.b, bk[2]))));
         }
+        const shown = display(C.clone());
         const p = (y * res + x) * 3;
-        values[p] = color[1]!.r;
-        values[p + 1] = color[1]!.g;
-        values[p + 2] = color[1]!.b;
+        values[p] = shown.r;
+        values[p + 1] = shown.g;
+        values[p + 2] = shown.b;
         maxBack = Math.max(maxBack, n);
       }
       maxOut = Math.max(maxOut, n);
-      paths.push({ pts: vs.map((v) => new THREE.Vector3(...v.p)), lit, color, revealAt: 0 });
+      paths.push({ pts, lit, aimed, color, revealAt: 0 });
     }
   }
 
@@ -178,6 +216,12 @@ function trace(): void {
   shownRevealed = -1;
   stage.duration = backEnd + HOLD;
   stage.t = 0;
+}
+
+/** Radiance at exposure 1, clipped at 1 without changing its hue. */
+function display(c: THREE.Color): THREE.Color {
+  const m = Math.max(c.r, c.g, c.b);
+  return m > 1 ? c.multiplyScalar(1 / m) : c;
 }
 
 let shownRevealed = -1;
@@ -227,7 +271,8 @@ stage.frame((t) => {
       // step n - k + 1, counted from the lamp.
       const v = p.lit ? clamp01((t - backStart - (n - k) * BACK_STEP) / BACK_STEP) : 0;
       const front = b.clone().lerp(a, v);
-      if (v < 1) push(p.lit ? outPos : deadPos, p.lit ? outCol : deadCol, a, v > 0 ? front : a.clone().lerp(b, u), DARK);
+      const dark = k === p.aimed ? AIMED : DARK;
+      if (v < 1) push(p.lit ? outPos : deadPos, p.lit ? outCol : deadCol, a, v > 0 ? front : a.clone().lerp(b, u), dark);
       if (v > 0) push(backPos, backCol, b, front, p.color[k]!);
     }
   }
