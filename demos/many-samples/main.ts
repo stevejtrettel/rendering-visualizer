@@ -12,9 +12,22 @@
  *   3. the copy drops into the running image, which becomes the average of
  *      every pass so far.
  *
- * The first passes are slow enough to follow; then they speed up, and the
- * average visibly settles while each new partial image stays just as noisy.
- * The figure ramps to the average of all SAMPLES passes and holds it.
+ * The first SLOW passes are slow enough to follow, step by step as above.
+ * Then they speed up, and the average visibly settles while each new partial
+ * image stays just as noisy. The figure ramps to the average of all SAMPLES
+ * passes and holds it.
+ *
+ * Every lit path stays, faintly: a pass's paths settle into a haze that the
+ * next pass adds to, so the room fills with the light paths being averaged.
+ * With N passes in, each path in the haze is drawn at opacity HAZE_C / N
+ * (capped at HAZE_MAX): the weight it has in the average. So the haze does
+ * not pile up into a white-out; like the image, it smooths out. (The haze
+ * writes no depth, or faint lines in front would hide the ones behind and
+ * it could never build up.)
+ * In the fast passes there is no dark stage either: a pass's lit paths
+ * appear in their colours, brighter, and sink into the haze over the pass.
+ * Redrawing every path out dark and back in colour three times a second was
+ * a strobe (Steve, 2026-10-29: "less flash-bangy").
  *
  * The tracer is pt-aim, as on the slide before (one-sample ?strategy=aim):
  * bounce a random number of times, then send one ray at the lamp. Pass s is
@@ -55,6 +68,11 @@ const LINE_GAIN = 4;
 const LINE_FLOOR = 0.35;
 const BLANK = 18;
 const DEAD_OPACITY = 0.12;
+const SLOW = 3; // passes shown step by step
+const HAZE_C = 1.0; // a haze path's opacity with N passes in: HAZE_C / N ...
+const HAZE_MAX = 0.35; // ... at most this
+const HAZE_WIDTH = 2;
+const FRESH = 0.7; // a fast pass's paths as they appear
 // Pacing, seconds: the first pass takes FIRST, each next one SPEEDUP of the
 // one before, down to FASTEST.
 const FIRST = 7;
@@ -90,8 +108,12 @@ stage.hud.add(caption);
 const outLines = segments({ width: 2, opacity: 0.999 });
 const deadLines = segments({ width: 2, opacity: 0.999 });
 const backLines = segments({ width: 5, opacity: 0.999, toneMapped: false });
+const freshLines = segments({ width: HAZE_WIDTH, opacity: 0.999, toneMapped: false });
+const hazeLines = segments({ width: HAZE_WIDTH, opacity: 0.999, toneMapped: false });
+for (const lines of [hazeLines, freshLines, backLines]) lines.material.depthWrite = false;
+const hazeOpacity = (n: number) => Math.min(HAZE_MAX, HAZE_C / Math.max(1, n));
 const planeGroup = new THREE.Group();
-stage.add(outLines, deadLines, backLines, planeGroup);
+stage.add(hazeLines, outLines, deadLines, backLines, freshLines, planeGroup);
 
 // --- Controls --------------------------------------------------------------
 const params = { grid: 16 };
@@ -112,6 +134,9 @@ interface Pass {
   maxBack: number;
   /** This pass's image as shown: radiance at exposure 1, clipped. */
   shown: Float32Array;
+  /** Every segment of its lit paths, in their colours: 6 numbers each. */
+  litPos: Float32Array;
+  litCol: Float32Array;
 }
 let passes: Pass[] = [];
 /** Running sums of the raw values over passes: sums[s] = passes 0..s. */
@@ -185,7 +210,22 @@ function trace(): void {
       }
     }
     const length = Math.max(FASTEST, FIRST * SPEEDUP ** s);
-    passes.push({ start, length, paths, maxOut, maxBack, shown });
+    const litPos: number[] = [];
+    const litCol: number[] = [];
+    for (const path of paths) {
+      if (!path.lit) continue;
+      for (let k = 1; k < path.pts.length; k++) {
+        const a = path.pts[k - 1]!;
+        const b = path.pts[k]!;
+        const c = path.color[k]!;
+        litPos.push(a.x, a.y, a.z, b.x, b.y, b.z);
+        litCol.push(c.r, c.g, c.b, c.r, c.g, c.b);
+      }
+    }
+    passes.push({
+      start, length, paths, maxOut, maxBack, shown,
+      litPos: new Float32Array(litPos), litCol: new Float32Array(litCol),
+    });
     sums.push(running.slice());
     start += length;
   }
@@ -199,9 +239,10 @@ function trace(): void {
     tilePixels = new Uint8ClampedArray(res * res * 4);
     stage.hud.add(inset.group, tile.group);
   }
-  shownPass = -1;
+  shownPass = null;
   shownAverage = -2;
   shownTile = '';
+  shownHaze = -1;
   stage.duration = start + HOLD;
   stage.t = 0;
 }
@@ -241,9 +282,28 @@ let tile: FilmPanel | null = null;
 let insetPixels: Uint8ClampedArray | null = null;
 let tilePixels: Uint8ClampedArray | null = null;
 let plane: ImagePlaneElement | null = null;
-let shownPass = -1;
+let shownPass: number | null = null;
 let shownAverage = -2;
 let shownTile = '';
+let shownHaze = -1;
+
+/** The haze: every lit path of passes 0 .. upTo-1. */
+function paintHaze(upTo: number): void {
+  if (upTo === shownHaze) return;
+  shownHaze = upTo;
+  let n = 0;
+  for (let i = 0; i < upTo; i++) n += passes[i]!.litPos.length;
+  const pos = new Float32Array(n);
+  const col = new Float32Array(n);
+  let o = 0;
+  for (let i = 0; i < upTo; i++) {
+    pos.set(passes[i]!.litPos, o);
+    col.set(passes[i]!.litCol, o);
+    o += passes[i]!.litPos.length;
+  }
+  setSegments(hazeLines, pos, col);
+  hazeLines.material.opacity = hazeOpacity(upTo);
+}
 
 function fill(out: Uint8ClampedArray, rgb: (i: number) => [number, number, number] | null): void {
   for (let i = 0; i < res * res; i++) {
@@ -281,16 +341,19 @@ function paintTile(s: number, local: number): void {
 }
 
 /**
- * The film in the scene shows the pass being made, revealing as one-sample's
- * does; once every pass is in (key = passes.length), the finished average.
+ * The film in the scene: in a slow pass, the pass being made, revealing as
+ * one-sample's does; in the fast passes and the hold, the running average
+ * (passes 0..landed). Blanking and re-revealing it three times a second
+ * flashed.
  */
-function ensurePlane(key: number): void {
+function ensurePlane(slowPass: number | null, landed: number): void {
+  const key = slowPass ?? -2 - landed;
   if (key === shownPass) return;
   shownPass = key;
-  const pass = passes[key];
+  const pass = slowPass === null ? undefined : passes[slowPass]!;
   const config = pass
     ? { cumulative: pass.shown, revealAt: Float32Array.from(pass.paths, (p) => pass.start + revealAt(pass, p)) }
-    : { cumulative: averageShown(passes.length - 1) };
+    : { cumulative: averageShown(landed) };
   plane?.dispose();
   plane = new ImagePlaneElement(
     { camera: desc.camera, distance: PLANE_DISTANCE, res, samples: 1, dwell: Infinity, highlight: null, ...config },
@@ -322,18 +385,40 @@ stage.frame((t) => {
   const u = local / pass.length;
   const done = t >= pass.start + pass.length; // past the last pass: holding
 
-  ensurePlane(done ? passes.length : s);
+  const averaged = done || u >= DROP_LAND ? s : s - 1;
+  ensurePlane(s < SLOW && !done ? s : null, averaged);
   plane!.drawAt(t);
-  paintTile(s, local);
-  paintAverage(done || u >= DROP_LAND ? s : s - 1);
+  paintTile(s, s < SLOW ? local : Infinity); // a fast pass's image arrives whole
+  paintAverage(averaged);
 
   // The partial image hovers, falls in, and dissolves as it lands.
   const p = clamp01((u - DROP_START) / (DROP_LAND - DROP_START));
   tile!.group.visible = !done && u < DROP_LAND;
   tile!.group.position.set(INSET.center[0], INSET.center[1] + RISE * (1 - p * p), 0.01);
-  tileMaterial().opacity = p < 0.7 ? 0.999 : Math.max(0, 1 - (p - 0.7) / 0.3);
+  const appear = s < SLOW ? 1 : clamp01(u / 0.2); // and fades in rather than blinking on
+  tileMaterial().opacity = appear * (p < 0.7 ? 0.999 : Math.max(0, 1 - (p - 0.7) / 0.3));
 
-  // The paths of this pass: out dark, light back from the lamp, then gone.
+  paintHaze(done ? passes.length : s);
+
+  // A fast pass: its lit paths appear in colour and sink into the haze.
+  if (s >= SLOW || done) {
+    for (const lines of [outLines, deadLines, backLines]) lines.visible = false;
+    if (done) {
+      freshLines.visible = false;
+    } else {
+      setSegments(freshLines, pass.litPos, pass.litCol);
+      const rise = 0.25;
+      const haze = hazeOpacity(s + 1);
+      freshLines.material.opacity = u < rise ? FRESH * (u / rise) : FRESH + (haze - FRESH) * ((u - rise) / (1 - rise));
+    }
+    const landed = done || u >= DROP_LAND ? s + 1 : s;
+    setText(caption, `${landed} paths per pixel, averaged`);
+    return;
+  }
+  freshLines.visible = false;
+
+  // A slow pass: out dark, light back from the lamp, then the lit paths
+  // thin and dim into the haze while the rest fade away.
   const outStep = (OUT_END * pass.length) / Math.max(1, pass.maxOut);
   const backStep = ((BACK_END - BACK_START) * pass.length) / Math.max(1, pass.maxBack);
   const outPos: number[] = [];
@@ -367,7 +452,9 @@ stage.frame((t) => {
   setSegments(backLines, new Float32Array(backPos), new Float32Array(backCol));
   const fade = 1 - clamp01((u - DROP_START) / (1 - DROP_START));
   outLines.material.opacity = 0.999 * fade;
-  backLines.material.opacity = 0.999 * fade;
+  const haze = hazeOpacity(s + 1);
+  backLines.material.opacity = haze + (0.999 - haze) * fade;
+  backLines.material.linewidth = HAZE_WIDTH + (5 - HAZE_WIDTH) * fade;
   deadLines.material.opacity = fade * (1 - (1 - DEAD_OPACITY) * clamp01((u - OUT_END) / (BACK_START - OUT_END)));
 
   const landed = done || u >= DROP_LAND ? s + 1 : s;
