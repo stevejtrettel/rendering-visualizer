@@ -105,6 +105,12 @@ export const INFO: Record<string, DemoInfo> = {
       'The two things a picture is made from: the scene, a 3D model, and the screen, a blank grid of pixels on the camera frustum. The set-up of level-zero, before any ray is traced.',
     section: 'Act 1 — one path',
   },
+  'move-camera': {
+    title: 'Move the camera, start over',
+    blurb:
+      'A live render on the screen and the camera drawn in front of the box; drag to move the camera, and every move throws the picture away and starts it again from noise.',
+    section: 'Act 1 — one path',
+  },
   'pixel-samples': {
     title: 'One pixel, up close',
     blurb:
