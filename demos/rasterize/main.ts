@@ -47,6 +47,13 @@
  * The 3D pieces and the screen use the same formula (shader and CPU), so
  * what lands on the plane is what the screen shows.
  *
+ * With light, the shading is shown as its own step before the projection
+ * (Steve, 2026-10-29: make clear what is being done): at a few points of
+ * the scene a normal and the line to the lamp appear, then the whole scene,
+ * still in 3D, recolours to the shading, then the points go and the camera
+ * appears. Shade first, then project. With flat, a piece's colour goes
+ * flat as it flies.
+ *
  * The plane sits at PLANE_DISTANCE, further out than level-zero's film, so
  * the flattened scene is big enough to read. The figure ramps to the
  * finished image and holds.
@@ -85,8 +92,13 @@ const DEPTH_KEEP = 0.03; // the flattened slab's thickness, relative to the scen
 const FAR = 9.5; // how far the frustum edges are drawn, from the eye
 const BLANK = 18;
 // Timing, seconds.
-const PLANE_IN = [0.6, 1.4]; // eye, plane and frustum appear; the unseen scene is cut away
-const FIRST_PIECE = 2.0;
+// With light, the shading step comes first and everything after waits for it.
+const GLYPHS_IN = [0.5, 1.3]; // normals and lines to the lamp, at a few points
+const SHADE_IN = [1.8, 3.4]; // the scene recolours to the shading, in 3D
+const GLYPHS_OUT = [3.9, 4.4];
+const AFTER = SHADE === 'light' ? 4.2 : 0;
+const PLANE_IN = [0.6 + AFTER, 1.4 + AFTER]; // eye, plane and frustum appear; the unseen scene is cut away
+const FIRST_PIECE = 2.0 + AFTER;
 const PIECE = 0.9; // one piece's flight
 const STAGGER = 0.7; // between one piece leaving and the next
 const LAND = 0.3; // a landed piece's pixels fade in over this
@@ -178,7 +190,8 @@ const shared = {
   uK: { value: DEPTH_KEEP },
 };
 interface Piece {
-  flat: { value: number };
+  flat: { value: number }; // how far it has flown onto the plane
+  shade: { value: number }; // how far its colour has gone to the slide's shading
 }
 // sceneToThree adds one mesh per primitive, in order.
 const pieces: Piece[] = PIECES.map((name) => {
@@ -186,9 +199,11 @@ const pieces: Piece[] = PIECES.map((name) => {
   if (i < 0) throw new Error(`no primitive ${name}`);
   const mat = (sceneGroup.children[i] as THREE.Mesh).material as THREE.MeshStandardMaterial;
   const flat = { value: 0 };
+  const shade = { value: 0 };
   const c = COLORS.get(name)!;
   const own = {
     uFlat: flat,
+    uShade: shade,
     uAlbedo: { value: new THREE.Vector3(c.r, c.g, c.b) },
     uLit: { value: SHADE === 'light' && name !== 'light' ? 1 : 0 },
   };
@@ -219,7 +234,7 @@ const pieces: Piece[] = PIECES.map((name) => {
     shader.fragmentShader = shader.fragmentShader
       .replace(
         'void main() {',
-        `uniform float uFlat; uniform vec3 uAlbedo; uniform float uLit; uniform vec3 uLamp; uniform float uAmb;
+        `uniform float uShade; uniform vec3 uAlbedo; uniform float uLit; uniform vec3 uLamp; uniform float uAmb;
         uniform vec3 uEye; varying vec3 vWorldP; varying vec3 vWorldN;
         void main() {`,
       )
@@ -229,12 +244,65 @@ const pieces: Piece[] = PIECES.map((name) => {
         vec3 nW = normalize( vWorldN );
         if ( dot( nW, uEye - vWorldP ) < 0.0 ) nW = -nW;
         float lit = uAmb + ( 1.0 - uAmb ) * max( 0.0, dot( nW, normalize( uLamp - vWorldP ) ) );
-        gl_FragColor.rgb = mix( gl_FragColor.rgb, uAlbedo * mix( 1.0, lit, uLit ), uFlat );`,
+        gl_FragColor.rgb = mix( gl_FragColor.rgb, uAlbedo * mix( 1.0, lit, uLit ), uShade );`,
       );
   };
   mat.needsUpdate = true;
-  return { flat };
+  return { flat, shade };
 });
+
+// --- The shading rule, shown at a few points -------------------------------
+// At each: the point, its normal (turned toward the eye, as the shading
+// turns it), and the line to the centre of the lamp. Chosen with a clear
+// line to the lamp, since the shading ignores anything in the way and a
+// line through a ball would claim otherwise.
+const GLYPH_POINTS: { p: THREE.Vector3; n: THREE.Vector3 }[] = (() => {
+  const onBall = (name: string, dir: [number, number, number]) => {
+    const b = desc.primitives.find((q) => q.name === name)!;
+    if (b.shape.kind !== 'sphere') throw new Error('expected a sphere');
+    const n = new THREE.Vector3(...dir).normalize();
+    return { p: new THREE.Vector3(...b.shape.center).addScaledVector(n, b.shape.radius), n };
+  };
+  return [
+    { p: new THREE.Vector3(0.5, 1.6, -2), n: new THREE.Vector3(0, 0, 1) }, // back wall
+    { p: new THREE.Vector3(-0.2, 0, 1.2), n: new THREE.Vector3(0, 1, 0) }, // floor
+    { p: new THREE.Vector3(-2, 2.6, 0.4), n: new THREE.Vector3(1, 0, 0) }, // left wall
+    onBall('ball', [0.2, 0.9, 0.4]), // white ball, facing up toward the lamp
+    onBall('ballBlue', [0.7, 0.1, 0.7]), // blue ball, facing sideways
+  ];
+})();
+const glyphGroup = new THREE.Group();
+const glyphMaterials: { opacity: number }[] = [];
+{
+  const normals = segments({ width: 3, opacity: 0.999 });
+  const toLamp = segments({ width: 2, opacity: 0.999 });
+  const nPos: number[] = [];
+  const lPos: number[] = [];
+  for (const { p, n } of GLYPH_POINTS) {
+    const q = p.clone().addScaledVector(n, 0.02);
+    const tip = q.clone().addScaledVector(n, 0.7);
+    nPos.push(q.x, q.y, q.z, tip.x, tip.y, tip.z);
+    lPos.push(q.x, q.y, q.z, LAMP.x, LAMP.y - 0.02, LAMP.z);
+    const dot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.06, 16, 10),
+      new THREE.MeshBasicMaterial({ color: C.bone, transparent: true, toneMapped: false }),
+    );
+    dot.position.copy(q);
+    glyphGroup.add(dot);
+    glyphMaterials.push(dot.material);
+  }
+  const fill = (n: number, hex: number) => {
+    const c = new THREE.Color(hex);
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i += 3) c.toArray(out, i);
+    return out;
+  };
+  setSegments(normals, new Float32Array(nPos), fill(nPos.length, C.bone));
+  setSegments(toLamp, new Float32Array(lPos), fill(lPos.length, C.ochre));
+  glyphGroup.add(normals, toLamp);
+  glyphMaterials.push(normals.material, toLamp.material);
+}
+stage.add(glyphGroup);
 
 // --- Labels ----------------------------------------------------------------
 const sceneLabel = label('scene', { size: 0.08, color: C.bone, anchorX: 'center', anchorY: 'bottom', opacity: 0.999 });
@@ -348,11 +416,19 @@ stage.frame((t) => {
   beyond.material.opacity = 0.3 * shown;
   frustum.forEach((p, i) => (p.constant = frustumConstants[i]! + (shown > 0 ? 0 : OFF)));
 
+  // Shade first (light): the rule shown at a few points, then applied to
+  // the whole scene in place.
+  const glyphs = ramp(t, GLYPHS_IN) * (1 - ramp(t, GLYPHS_OUT));
+  glyphGroup.visible = SHADE === 'light' && glyphs > 0;
+  for (const m of glyphMaterials) m.opacity = 0.999 * glyphs;
+  const shading = smooth(ramp(t, SHADE_IN));
+
   // The pieces fly one at a time, each flattening onto the plane, and
   // each appears on the screen as it lands, over the ones before.
   const landed = pieces.map((piece, k) => {
     const start = FIRST_PIECE + k * STAGGER;
     piece.flat.value = smooth(ramp(t, [start, start + PIECE]));
+    piece.shade.value = SHADE === 'light' ? shading : piece.flat.value;
     return ramp(t, [start + PIECE, start + PIECE + LAND]);
   });
 
