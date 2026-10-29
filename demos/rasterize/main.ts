@@ -43,25 +43,24 @@
  *
  * theta the angle between the surface normal and the direction to the
  * light. (The normal is taken on the side the camera sees, since the walls
- * are seen from inside.) The point wanders about the scene, slowly, a
- * random walk over nearby pixels starting on the white ball (Steve,
- * 2026-10-29: wander slower, fill in pixels as we go, then all of them);
- * at each pixel an elbow sits where the pixel's
- * centre sees the scene, the normal and the line to the light meeting at
- * the point with the angle between them filled in as a wedge (Steve,
- * 2026-10-29: no theta drawn, just the elbow, and it must be clear that
- * there is an ANGLE). The normal is drawn dark, so it reads on the pale
- * walls. The two factors are built apart and then multiplied (Steve:
- * a greyscale image of the angle, overlaid on the colour image):
+ * are seen from inside.) At each point an elbow shows it: the normal (dark,
+ * so it reads on the pale walls) and the line to the light, the angle
+ * between them filled in as a wedge (Steve, 2026-10-29: no theta drawn, and
+ * it must be clear there is an ANGLE). The brightness factor is made into
+ * a scene of its own, rasterized, and multiplied with the colour image
+ * (Steve, 2026-10-29: colour the scene itself in greyscale by this angle,
+ * rasterize that, then multiply the two images):
  *
  *   1. the flat colour image lifts off the screen and parks small below it;
- *   2. the wander fills the blank screen with the brightness factor, in
- *      grey, a pixel at each stop (white where a surface faces the light),
- *      and then every other pixel fills in, in random order;
- *   3. the colour image flies back onto the screen and the two multiply
- *      into the shaded image;
- *   4. a beat on the result. (The 3D scene keeps its own lit look
- *      throughout, the same on every slide: styleShortBox.)
+ *   2. the elbow wanders about the 3D scene, slowly (a random walk over
+ *      nearby pixels' surface points, from the top of the white ball), and
+ *      the scene itself turns grey where it stops: a patch round each point
+ *      takes the brightness factor, white where a surface faces the light;
+ *      then the grey spreads from the last stop over the whole scene;
+ *   3. that grey scene is rasterized, piece by piece as on the flat slide,
+ *      and the screen fills with the grey image;
+ *   4. the colour image flies back onto the screen and the two multiply
+ *      into the shaded image.
  *
  * Every image here is per-sample exact (SPP jittered samples a pixel): the
  * grey is the mean of the factor, the result the mean of colour x factor,
@@ -139,7 +138,8 @@ const ASIDE = [0.8, 2.0]; // the colour image lifts off the screen and parks bel
 const WANDER_START = 2.5;
 const WANDER_STOPS = 12;
 const STOP = 1.2; // seconds at each stop of the wander
-const ARRIVE = 0.45; // into a stop, when its pixel turns grey
+const ARRIVE = 0.45; // into a stop, when the scene round it turns grey
+const PATCH = 0.32; // world units: the grey patch round each stop
 const WANDER_REACH = 4 / 24; // how far one step of the wander may go, as a share of the screen
 const wanderEnd = WANDER_START + WANDER_STOPS * STOP;
 // trace:
@@ -151,8 +151,10 @@ const RAY_FILL = 1.4; // and when its pixel is filled
 const traceSlowEnd = TRACE_START + TRACE_SLOW * RAY_STEP;
 const TRACE_FAST = [traceSlowEnd, traceSlowEnd + 10]; // every other pixel, raster order, eased in
 const TRACE_LIT_3D = [TRACE_FAST[1]! + 0.6, TRACE_FAST[1]! + 2.0]; // a beat on the result before the hold
-const FILL = [wanderEnd + 0.3, wanderEnd + 3.3]; // every other pixel, random order
-const BACK = [FILL[1]! + 0.5, FILL[1]! + 2.0]; // the colour image flies back onto the screen
+const WASH = [wanderEnd + 0.2, wanderEnd + 2.6]; // the grey spreads from the last stop over everything
+const GREY_PIECES = WASH[1]! + 0.6; // then the grey scene is rasterized, piece by piece
+const greyLands = GREY_PIECES + (PIECES.length - 1) * STAGGER + PIECE + LAND;
+const BACK = [greyLands + 0.5, greyLands + 2.0]; // the colour image flies back onto the screen
 const MULTIPLY = [BACK[1]!, BACK[1]! + 0.8]; // and the two become the shaded image
 const LIT_3D = [MULTIPLY[1]! + 0.3, MULTIPLY[1]! + 1.7]; // a beat on the result before the hold
 /** Where the colour image waits while the grey is built: HUD centre, and its size relative to the screen. */
@@ -237,8 +239,16 @@ const frustumConstants = frustum.map((p) => p.constant);
 const OFF = 1000;
 
 // --- Flattening and colour, in the shaders ---------------------------------
+const MAX_VISITS = 16;
 const shared = {
   uLitAll: { value: 0 }, // how far the 3D scene has taken the angle shading (light)
+  // light: the scene turned grey, round the wander's stops and then a wash.
+  uGreyOn: { value: 0 },
+  uPatch: { value: PATCH },
+  uVisitCount: { value: 0 },
+  uVisited: { value: Array.from({ length: MAX_VISITS }, () => new THREE.Vector3()) },
+  uWashC: { value: new THREE.Vector3() },
+  uWashR: { value: 0 },
   uLamp: { value: LAMP.clone() },
   uAmb: { value: AMBIENT },
   uEye: { value: eye.clone() },
@@ -293,6 +303,8 @@ const pieces: Piece[] = PIECES.map((name) => {
         'void main() {',
         `uniform float uShade; uniform vec3 uAlbedo; uniform float uLit; uniform float uLitAll;
         uniform vec3 uLamp; uniform float uAmb; uniform vec3 uEye; varying vec3 vWorldP; varying vec3 vWorldN;
+        uniform float uGreyOn; uniform float uPatch; uniform int uVisitCount; uniform vec3 uVisited[${MAX_VISITS}];
+        uniform vec3 uWashC; uniform float uWashR;
         void main() {`,
       )
       .replace(
@@ -301,7 +313,17 @@ const pieces: Piece[] = PIECES.map((name) => {
         vec3 nW = normalize( vWorldN );
         if ( dot( nW, uEye - vWorldP ) < 0.0 ) nW = -nW;
         float lit = uAmb + ( 1.0 - uAmb ) * max( 0.0, dot( nW, normalize( uLamp - vWorldP ) ) );
-        gl_FragColor.rgb = mix( gl_FragColor.rgb, uAlbedo * mix( 1.0, lit, uLit * uLitAll ), uShade );`,
+        // light: grey where the wander has been and where the wash has reached.
+        float grey = 0.0;
+        for ( int i = 0; i < ${MAX_VISITS}; i++ ) {
+          if ( i >= uVisitCount ) break;
+          grey = max( grey, 1.0 - smoothstep( uPatch * 0.75, uPatch, distance( vWorldP, uVisited[ i ] ) ) );
+        }
+        if ( uWashR > 0.0 ) grey = max( grey, 1.0 - smoothstep( uWashR * 0.85, uWashR, distance( vWorldP, uWashC ) ) );
+        grey *= uGreyOn;
+        vec3 surface = mix( uAlbedo, vec3( 1.0 ), uGreyOn );
+        float k = mix( 1.0, lit, max( uLit * uLitAll, uLit * uGreyOn ) );
+        gl_FragColor.rgb = mix( gl_FragColor.rgb, surface * k, max( uShade, grey ) );`,
       );
   };
   mat.needsUpdate = true;
@@ -651,26 +673,45 @@ function frameFlat(t: number): void {
 }
 
 function frameLight(t: number): void {
-  // Where the flat slide ended: the camera up, the scene in flat colour, the
-  // flat image on the screen, which grid lines no longer cover.
+  // Where the flat slide ended: the camera up, the flat image on the screen.
   showCamera(1);
-  gridLines.material.opacity = 0.999 * Math.min(1, 24 / params.grid);
-  for (const piece of pieces) piece.shade.value = 0; // the 3D scene keeps its own shading (styleShortBox)
+  shared.uGreyOn.value = 1;
   if (!screen || !pixels || !order.length) return;
 
-  // How many pixels are grey by t, and which one the point is at: a stop
-  // of the wander, then (point gone) the rest filling in.
+  // The wander: which stop the point is at, and the stops it has turned grey.
   const stop = Math.floor((t - WANDER_START) / STOP);
   const current = Math.min(wanderStops - 1, stop);
-  let done = stop < 0 ? 0 : Math.min(wanderStops, stop + (t - WANDER_START - stop * STOP >= ARRIVE ? 1 : 0));
-  if (t >= FILL[0]!) done = wanderStops + Math.floor((order.length - wanderStops) * ramp(t, FILL));
+  const greyed = stop < 0 ? 0 : Math.min(wanderStops, stop + (t - WANDER_START - stop * STOP >= ARRIVE ? 1 : 0));
+  shared.uVisitCount.value = Math.min(MAX_VISITS, greyed);
+  for (let k = 0; k < Math.min(MAX_VISITS, wanderStops); k++) {
+    const c = centres[order[k]!];
+    if (c) shared.uVisited.value[k]!.copy(c.p);
+  }
   const pointShown = t >= WANDER_START && t < wanderEnd;
   const centre = current >= 0 ? centres[order[current]!] : null;
-  probeGroup.visible = screenCell.visible = pointShown && !!centre;
+  probeGroup.visible = pointShown && !!centre;
+  screenCell.visible = false; // the grey goes onto the scene here, not a pixel
   if (pointShown && centre) {
     const i = order[current]!;
     placeProbe(centre.p, centre.n, i % params.grid, Math.floor(i / params.grid));
+    planeCell.visible = false;
   }
+
+  // Then the grey spreads from the last stop over the whole scene.
+  const last = centres[order[wanderStops - 1]!];
+  if (last) shared.uWashC.value.copy(last.p);
+  const wash = ramp(t, WASH);
+  shared.uWashR.value = wash > 0 ? PATCH + 14 * wash * wash : 0;
+
+  // Then the grey scene is rasterized, piece by piece, onto the screen.
+  const landed = pieces.map((piece, k) => {
+    const start = GREY_PIECES + k * STAGGER;
+    piece.flat.value = smooth(ramp(t, [start, start + PIECE]));
+    piece.shade.value = 0;
+    return ramp(t, [start + PIECE, start + PIECE + LAND]);
+  });
+  const under = Math.min(1, 24 / params.grid);
+  gridLines.material.opacity = 0.999 * (1 + (under - 1) * ramp(t, [GREY_PIECES + PIECE, greyLands]));
 
   // The colour image: on the screen, lifted off to its parking spot, then
   // back onto the screen, where it is replaced by the product.
@@ -683,21 +724,20 @@ function frameLight(t: number): void {
     colourPanel.group.visible = t < MULTIPLY[0]!;
   }
 
-
-  // The screen: blank under the colour image, grey where the scan has been,
-  // then the product.
+  // The screen: blank under the colour image, the grey image as its pieces
+  // land, then the product.
   const product = ramp(t, MULTIPLY);
-  const key = `${done}/${Math.round(product * 32)}`;
+  const key = `${landed.map((a) => Math.round(a * 32)).join()}/${Math.round(product * 32)}`;
   if (key === shownFill) return;
   shownFill = key;
-  const scanned = new Uint8Array(params.grid * params.grid);
-  for (let k = 0; k < done; k++) scanned[order[k]!] = 1;
-  for (let i = 0; i < scanned.length; i++) {
-    for (let c = 0; c < 3; c++) {
-      const under = scanned[i] ? greyImage[i * 3 + c]! : BLANK;
-      pixels[i * 4 + c] = under + (litImage[i * 3 + c]! - under) * product;
+  composite(landed, 'grey', pixels, 4);
+  if (product > 0) {
+    for (let i = 0; i < params.grid * params.grid; i++) {
+      for (let c = 0; c < 3; c++) {
+        const under = pixels[i * 4 + c]!;
+        pixels[i * 4 + c] = under + (litImage[i * 3 + c]! - under) * product;
+      }
     }
-    pixels[i * 4 + 3] = 255;
   }
   screen.update(pixels);
 }
