@@ -44,7 +44,8 @@ export function translucent(sceneGroup: THREE.Group, desc: SceneDescription, nam
  * nicely shaded scene, uniform across all):
  *
  *   - the lamp's light casts soft shadows, so the balls sit on the floor;
- *   - a low warm fill keeps walls in shadow in their own colour;
+ *   - a low warm fill, graded from ceiling to floor, keeps walls in shadow
+ *     in their own colour and the balls' undersides from going flat;
  *   - the blue ball, a rough metal to the path tracer, reflects the box
  *     itself: the box is captured once from the ball's centre (everything
  *     but the box hidden) and used as its environment, instead of the
@@ -67,7 +68,7 @@ export function styleShortBox(
   for (const o of [...sceneGroup.children]) {
     if (o instanceof THREE.AmbientLight) {
       o.color.set(0xfff1e0);
-      o.intensity = 0.45;
+      o.intensity = 0.15;
     }
     if (o instanceof THREE.PointLight) {
       o.intensity = 26;
@@ -78,9 +79,17 @@ export function styleShortBox(
       o.shadow.camera.near = 0.05;
     }
   }
+  // Fill from above and below: warm light from the ceiling side, and the
+  // floor's bounce from beneath. A flat ambient alone left every point facing
+  // away from the lamp the same level, and the balls' lower halves read as a
+  // cap; this grades them.
+  sceneGroup.add(new THREE.HemisphereLight(0xfff1e0, 0x9a8f80, 0.75));
   desc.primitives.forEach((p, i) => {
     const mesh = sceneGroup.children[i] as THREE.Mesh;
-    mesh.receiveShadow = !p.emission;
+    // The balls cast shadows but do not receive them: a shadow-mapped sphere
+    // shadowing itself draws a hard band across its middle (its own lower
+    // half in shadow), where its shading already darkens smoothly.
+    mesh.receiveShadow = !p.emission && p.shape.kind !== 'sphere';
     mesh.castShadow = p.shape.kind === 'sphere';
   });
   translucent(sceneGroup, desc, 'right', 0.35);

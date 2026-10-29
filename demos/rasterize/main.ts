@@ -39,7 +39,13 @@
  * shading, which does not depend on where the camera is: the light is a
  * point at the centre of the lamp (drawn as one), and
  *
- *     pixel = surface colour x (AMBIENT + (1 - AMBIENT) cos theta),
+ *     pixel = surface colour x (AMBIENT + (1 - AMBIENT) (1 + cos theta) / 2),
+ *
+ * a "wrapped" cosine: it falls off smoothly all the way round instead of
+ * clamping at 90 degrees. With the plain clamped cosine every point facing
+ * away from the light came out the same flat ambient grey, which on the balls
+ * read as a cap over their lower halves (Steve, 2026-10-29). Still a function
+ * of the angle between normal and light only, and a rasterizer's fake.
  *
  * theta the angle between the surface normal and the direction to the
  * light. (The normal is taken on the side the camera sees, since the walls
@@ -199,7 +205,7 @@ const facingEye = (p: THREE.Vector3, n: THREE.Vector3) => (n.dot(eye.clone().sub
 /** The brightness factor at a surface point (see header); the lamp is not shaded. */
 function brightnessAt(name: string, p: THREE.Vector3, n: THREE.Vector3): number {
   if (name === 'light') return 1;
-  return AMBIENT + (1 - AMBIENT) * Math.max(0, facingEye(p, n).dot(LAMP.clone().sub(p).normalize()));
+  return AMBIENT + (1 - AMBIENT) * 0.5 * (1 + facingEye(p, n).dot(LAMP.clone().sub(p).normalize()));
 }
 
 const eyeDot = new THREE.Mesh(
@@ -361,7 +367,7 @@ const pieces: Piece[] = PIECES.map((name) => {
         `#include <tonemapping_fragment>
         vec3 nW = normalize( vWorldN );
         if ( dot( nW, uEye - vWorldP ) < 0.0 ) nW = -nW;
-        float lit = uAmb + ( 1.0 - uAmb ) * max( 0.0, dot( nW, normalize( uLamp - vWorldP ) ) );
+        float lit = uAmb + ( 1.0 - uAmb ) * 0.5 * ( 1.0 + dot( nW, normalize( uLamp - vWorldP ) ) );
         // light: grey behind the scan's front.
         float grey = uGreyOn * ( 1.0 - smoothstep( uFront - 0.06, uFront, dot( vWorldP - uSweepFrom, uSweepDir ) ) );
         vec3 surface = mix( uAlbedo, vec3( 1.0 ), uGreyOn );
