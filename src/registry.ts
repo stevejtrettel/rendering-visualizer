@@ -93,6 +93,12 @@ export const INFO: Record<string, DemoInfo> = {
       "one-path for the whole film at once: every pixel's ray goes out in lockstep, the ones that land on the lamp fill with colour from the lamp end, and the rest stay dark. One real plain-PT sample per pixel: a noisy image, and a count of how few paths found the light.",
     section: 'Act 1 — one path',
   },
+  'scene-and-screen': {
+    title: 'Scene and screen',
+    blurb:
+      'The two things a picture is made from: the scene, a 3D model, and the screen, a blank grid of pixels on the camera frustum. The set-up of level-zero, before any ray is traced.',
+    section: 'Act 1 — one path',
+  },
   'many-samples': {
     title: 'Many paths per pixel',
     blurb:
