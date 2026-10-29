@@ -35,17 +35,32 @@
  *
  * light: starts where flat ends, the flat image on the screen and the camera
  * in front of the box, and shades it pixel by pixel (Steve, 2026-10-29: show
- * the angle at each point and brighten or darken each pixel). For each pixel
- * a point sits where that pixel's centre sees the scene, with the line back
- * to the eye through the pixel, its normal, the line to the lamp and the
- * angle theta between them; then the pixel takes its shaded colour,
+ * the angle at each point and brighten or darken each pixel). Diffuse
+ * shading, which does not depend on where the camera is: the light is a
+ * point at the centre of the lamp (drawn as one), and
  *
- *     surface colour x (AMBIENT + (1 - AMBIENT) cos theta),
+ *     pixel = surface colour x (AMBIENT + (1 - AMBIENT) cos theta),
  *
- * theta the angle between the normal (turned toward the eye) and the
- * direction to the centre of the lamp. The first few pixels are hand-picked
- * and slow (top and side of the white ball, back wall, floor); then the rest
- * run in raster order. At the end the 3D scene takes on the same shading.
+ * theta the angle between the surface normal and the direction to the
+ * light. (The normal is taken on the side the camera sees, since the walls
+ * are seen from inside.) A scan runs over the image in raster order, slow
+ * at first and speeding up; at each pixel an elbow sits where the pixel's
+ * centre sees the scene, the normal and the line to the light meeting at
+ * the point (Steve, 2026-10-29: no theta drawn, just the elbow, scanned over
+ * the scene). The two factors are built apart and then multiplied (Steve:
+ * a greyscale image of the angle, overlaid on the colour image):
+ *
+ *   1. the flat colour image lifts off the screen and parks small below it;
+ *   2. the scan fills the blank screen with the brightness factor, in grey,
+ *      pixel by pixel (white where a surface faces the light);
+ *   3. the colour image flies back onto the screen and the two multiply
+ *      into the shaded image;
+ *   4. the 3D scene takes on the same shading.
+ *
+ * Every image here is per-sample exact (SPP jittered samples a pixel): the
+ * grey is the mean of the factor, the result the mean of colour x factor,
+ * which is why the result is shown as computed rather than as the product
+ * of the two displayed images.
  * It is a rasterizer's fake, easy to say: no shadows, no light bouncing
  * between surfaces, no falloff with distance, and the ambient floor stands
  * in for all the light that does not come straight from the lamp. The lamp
@@ -100,10 +115,13 @@ const STAGGER = 0.7; // between one piece leaving and the next
 const LAND = 0.3; // a landed piece's pixels fade in over this
 const lastLands = FIRST_PIECE + (PIECES.length - 1) * STAGGER + PIECE + LAND;
 // light:
-const SLOW_START = 1.0;
-const SLOW_STEP = 3.2; // each hand-picked pixel: the point and its angle, then the pixel changes
-const RECOLOUR = 2.0; // into a slow step, when its pixel changes
-const FAST = 10; // the rest of the pixels, raster order
+const ASIDE = [0.8, 2.0]; // the colour image lifts off the screen and parks below it
+const SCAN = [2.5, 19.5]; // every pixel, raster order, eased in: slow at first, then faster
+const BACK = [20.0, 21.5]; // the colour image flies back onto the screen
+const MULTIPLY = [21.5, 22.3]; // and the two become the shaded image
+const LIT_3D = [22.6, 24.0]; // the 3D scene takes the same shading
+/** Where the colour image waits while the grey is built: HUD centre, and its size relative to the screen. */
+const PARKED = { center: [-1.22, -0.8] as [number, number], scale: 0.3 };
 const HOLD = 3;
 
 // --- Stage -----------------------------------------------------------------
@@ -138,12 +156,10 @@ const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) =>
 /** The normal turned toward the eye, as the shading turns it. */
 const facingEye = (p: THREE.Vector3, n: THREE.Vector3) => (n.dot(eye.clone().sub(p)) < 0 ? n.clone().negate() : n.clone());
 
-/** A surface point's colour, linear: flat, or lit by its angle to the lamp (see header). */
-function shadeAt(name: string, p: THREE.Vector3, n: THREE.Vector3, lit: boolean): [number, number, number] {
-  const c = COLORS.get(name)!;
-  if (!lit || name === 'light') return [c.r, c.g, c.b];
-  const k = AMBIENT + (1 - AMBIENT) * Math.max(0, facingEye(p, n).dot(LAMP.clone().sub(p).normalize()));
-  return [c.r * k, c.g * k, c.b * k];
+/** The brightness factor at a surface point (see header); the lamp is not shaded. */
+function brightnessAt(name: string, p: THREE.Vector3, n: THREE.Vector3): number {
+  if (name === 'light') return 1;
+  return AMBIENT + (1 - AMBIENT) * Math.max(0, facingEye(p, n).dot(LAMP.clone().sub(p).normalize()));
 }
 
 const eyeDot = new THREE.Mesh(
@@ -257,22 +273,19 @@ const pieces: Piece[] = PIECES.map((name) => {
 });
 
 // --- The point being shaded (light) ----------------------------------------
-// Where a pixel's centre sees the scene: the point, the line back to the eye
-// through the pixel, the normal (bone), the line to the lamp (ochre) and the
-// angle between them; and the pixel, outlined on the plane and the screen.
+// Where a pixel's centre sees the scene: the point, and the elbow there, its
+// normal (bone) and the line to the light (ochre); and the pixel, outlined
+// on the plane and the screen. The light itself, a point.
 const probeGroup = new THREE.Group();
 const probeDot = new THREE.Mesh(
   new THREE.SphereGeometry(0.07, 16, 10),
   new THREE.MeshBasicMaterial({ color: C.bone, toneMapped: false }),
 );
-const probeToEye = polyline([[0, 0, 0], [0, 0, 1]], { color: C.bone, width: 1.5, opacity: 0.6 });
 const probeNormal = polyline([[0, 0, 0], [0, 0, 1]], { color: C.bone, width: 6 });
 const probeToLamp = polyline([[0, 0, 0], [0, 0, 1]], { color: C.ochre, width: 4 });
-const ARC_STEPS = 24;
 const zeros = (n: number) => Array.from({ length: n }, () => [0, 0, 0] as [number, number, number]);
-const probeArc = polyline(zeros(ARC_STEPS + 1), { color: C.bone, width: 3 });
 const planeCell = polyline(zeros(5), { color: C.ochre, width: 3 });
-probeGroup.add(probeDot, probeToEye, probeNormal, probeToLamp, probeArc, planeCell);
+probeGroup.add(probeDot, probeNormal, probeToLamp, planeCell);
 // Drawn over the scene: from the viewer's side a wall or the ball would
 // otherwise hide half of what is being pointed at.
 probeGroup.traverse((o) => {
@@ -282,28 +295,21 @@ probeGroup.traverse((o) => {
 });
 stage.add(probeGroup);
 const screenCell = polyline(zeros(5), { color: C.ochre, width: 3 });
-const theta = label('θ', { size: 0.1, color: C.bone, anchorX: 'center', anchorY: 'middle' });
-stage.hud.add(screenCell, theta);
+stage.hud.add(screenCell);
+const lightPoint = new THREE.Mesh(
+  new THREE.SphereGeometry(0.12, 20, 12),
+  new THREE.MeshBasicMaterial({ color: C.ochreLight, toneMapped: false }),
+);
+lightPoint.position.copy(LAMP).add(new THREE.Vector3(0, -0.12, 0));
+lightPoint.visible = SHADE === 'light';
+stage.add(lightPoint);
 
 function placeProbe(p: THREE.Vector3, normal: THREE.Vector3, x: number, y: number): void {
   const n = facingEye(p, normal);
   const q = p.clone().addScaledVector(n, 0.01);
-  const l = LAMP.clone().sub(q).normalize();
   probeDot.position.copy(q);
-  setPolyline(probeToEye, [q, eye]);
   setPolyline(probeNormal, [q, q.clone().addScaledVector(n, 1.0)]);
-  setPolyline(probeToLamp, [q, LAMP]);
-  const ARC_R = 0.45;
-  const angle = n.angleTo(l);
-  const axis = n.clone().cross(l).normalize();
-  setPolyline(
-    probeArc,
-    Array.from({ length: ARC_STEPS + 1 }, (_, i) =>
-      q.clone().addScaledVector(n.clone().applyAxisAngle(axis, (angle * i) / ARC_STEPS), ARC_R),
-    ),
-  );
-  const mid = q.clone().addScaledVector(n.clone().applyAxisAngle(axis, angle / 2), ARC_R + 0.2);
-  theta.position.set(...toHud(mid), 0);
+  setPolyline(probeToLamp, [q, lightPoint.position]);
   const res = params.grid;
   setPolyline(planeCell, cellOnPlane(desc.camera, PLANE_DISTANCE, res, x, y));
   setPolyline(screenCell, cellInPanel(SCREEN.center, SCREEN.height, res, x, y));
@@ -350,14 +356,16 @@ ui.params.add(params, 'grid', 2, 64, 1).name('film resolution').onChange(restart
  * each sample's colour there, flat and lit (sRGB bytes, at
  * (pixel * SPP + sample) * 3).
  */
-let layers: { covers: Uint8Array; flat: Uint8Array; lit: Uint8Array }[] = [];
+let layers: { covers: Uint8Array; flat: Uint8Array; lit: Uint8Array; grey: Uint8Array }[] = [];
 /** light: the finished flat and lit images (sRGB bytes per pixel), and each pixel centre's surface point. */
 let flatImage = new Uint8Array(0);
 let litImage = new Uint8Array(0);
+let greyImage = new Uint8Array(0);
+/** light: the colour image, which lifts off the screen and comes back. */
+let colourPanel: FilmPanel | null = null;
 let centres: ({ p: THREE.Vector3; n: THREE.Vector3 } | null)[] = [];
 /** light: the pixels in the order they are shaded. */
 let order: number[] = [];
-let slowCount = 0;
 let shownFill = '';
 
 function buildScreen(res: number): void {
@@ -379,7 +387,7 @@ function buildScreen(res: number): void {
 }
 
 /** The screen with the first landed[k] of each piece painted, back to front, per sample. */
-function composite(landed: number[], which: 'flat' | 'lit', out: Uint8Array | Uint8ClampedArray, stride: number): void {
+function composite(landed: number[], which: 'flat' | 'lit' | 'grey', out: Uint8Array | Uint8ClampedArray, stride: number): void {
   const n = params.grid * params.grid;
   for (let i = 0; i < n; i++) {
     let r = 0;
@@ -423,6 +431,7 @@ function restart(): void {
     const covers = new Uint8Array(res * res);
     const flat = new Uint8Array(res * res * SPP * 3);
     const lit = new Uint8Array(res * res * SPP * 3);
+    const grey = new Uint8Array(res * res * SPP * 3);
     for (let y = 0; y < res; y++) {
       for (let x = 0; x < res; x++) {
         for (let s = 0; s < SPP; s++) {
@@ -432,16 +441,20 @@ function restart(): void {
           const i = y * res + x;
           covers[i]! |= 1 << s;
           const o = (i * SPP + s) * 3;
-          for (const [out, on] of [[flat, false], [lit, true]] as const) {
-            const c = shadeAt(name, v3(hit.p), v3(hit.ns), on);
-            out[o] = srgbEncode(c[0]);
-            out[o + 1] = srgbEncode(c[1]);
-            out[o + 2] = srgbEncode(c[2]);
-          }
+          const c = COLORS.get(name)!;
+          const k = brightnessAt(name, v3(hit.p), v3(hit.ns));
+          const put = (out: Uint8Array, r: number, g: number, b: number) => {
+            out[o] = srgbEncode(r);
+            out[o + 1] = srgbEncode(g);
+            out[o + 2] = srgbEncode(b);
+          };
+          put(flat, c.r, c.g, c.b);
+          put(lit, c.r * k, c.g * k, c.b * k);
+          put(grey, k, k, k);
         }
       }
     }
-    return { covers, flat, lit };
+    return { covers, flat, lit, grey };
   });
 
   if (SHADE === 'light') {
@@ -450,6 +463,17 @@ function restart(): void {
     litImage = new Uint8Array(res * res * 3);
     composite(all, 'flat', flatImage, 3);
     composite(all, 'lit', litImage, 3);
+    greyImage = new Uint8Array(res * res * 3);
+    composite(all, 'grey', greyImage, 3);
+    colourPanel?.dispose();
+    colourPanel = new FilmPanel({ width: res, height: res, drawnHeight: SCREEN.height, border: true, opacity: 0.999 });
+    const rgba = new Uint8ClampedArray(res * res * 4);
+    for (let i = 0; i < res * res; i++) {
+      rgba.set(flatImage.subarray(i * 3, i * 3 + 3), i * 4);
+      rgba[i * 4 + 3] = 255;
+    }
+    colourPanel.update(rgba);
+    stage.hud.add(colourPanel.group);
 
     // Where each pixel's centre sees the scene.
     const scene = buildScene(desc, res, res);
@@ -462,41 +486,15 @@ function restart(): void {
         names.push(hit ? (hit.primitive as unknown as { name: string }).name : null);
       }
     }
-    // The slow pixels: the ones whose centres land nearest a few chosen
-    // spots, then every other pixel in raster order.
-    const ball = desc.primitives.find((q) => q.name === 'ball')!.shape;
-    if (ball.kind !== 'sphere') throw new Error('expected a sphere');
-    const onBall = (d: [number, number, number]) =>
-      new THREE.Vector3(...ball.center).addScaledVector(new THREE.Vector3(...d).normalize(), ball.radius);
-    const spots: [string, THREE.Vector3][] = [
-      ['ball', onBall([0.1, 0.9, 0.5])], // top of the ball, facing the lamp
-      ['ball', onBall([-0.8, -0.2, 0.6])], // its side, facing away
-      ['back', new THREE.Vector3(0.4, 2.6, -2)],
-      ['floor', new THREE.Vector3(0.0, 0, 0.9)],
-    ];
-    const slow: number[] = [];
-    for (const [name, at] of spots) {
-      let best = -1;
-      let bestD = Infinity;
-      centres.forEach((c, i) => {
-        if (!c || names[i] !== name || slow.includes(i)) return;
-        const d = c.p.distanceTo(at);
-        if (d < bestD) [best, bestD] = [i, d];
-      });
-      if (best >= 0) slow.push(best);
-    }
-    slowCount = slow.length;
-    order = [...slow, ...Array.from({ length: res * res }, (_, i) => i).filter((i) => !slow.includes(i))];
+    order = Array.from({ length: res * res }, (_, i) => i);
   }
-  stage.duration = SHADE === 'light' ? fastEnd() + 2.3 + HOLD : lastLands + HOLD;
+  stage.duration = SHADE === 'light' ? LIT_3D[1]! + HOLD : lastLands + HOLD;
   stage.t = 0;
 }
 
 // --- Playback --------------------------------------------------------------
 const ramp = (t: number, [a, b]: number[]) => Math.min(1, Math.max(0, (t - a!) / (b! - a!)));
 const smooth = (u: number) => u * u * (3 - 2 * u);
-const fastStart = () => SLOW_START + slowCount * SLOW_STEP;
-const fastEnd = () => fastStart() + FAST;
 
 stage.frame((t) => {
   sceneLabel.position.set(...toHud(sceneTop), 0);
@@ -515,7 +513,7 @@ function showCamera(shown: number): void {
 
 function frameFlat(t: number): void {
   showCamera(ramp(t, PLANE_IN));
-  probeGroup.visible = screenCell.visible = theta.visible = false;
+  probeGroup.visible = screenCell.visible = false;
 
   // The pieces fly one at a time, each flattening onto the plane, and
   // each appears on the screen as it lands, over the ones before.
@@ -545,38 +543,45 @@ function frameLight(t: number): void {
   if (!screen || !pixels || !order.length) return;
 
   // How many pixels are shaded by t, and which one the point is at.
-  let done: number;
-  let current: number;
-  if (t < fastStart()) {
-    const k = Math.floor((t - SLOW_START) / SLOW_STEP);
-    current = k;
-    done = k < 0 ? 0 : k + (t - SLOW_START - k * SLOW_STEP >= RECOLOUR ? 1 : 0);
-  } else {
-    const u = ramp(t, [fastStart(), fastEnd()]);
-    done = slowCount + Math.floor((order.length - slowCount) * u * u); // eased in, so it picks up speed
-    current = Math.min(order.length - 1, Math.max(done - 1, slowCount));
-  }
-  const pointShown = t >= SLOW_START && t < fastEnd() + 0.3;
-  const centre = current >= 0 ? centres[order[current]!] : null;
-  probeGroup.visible = screenCell.visible = theta.visible = pointShown && !!centre;
+  // Eased in (cubic): the first pixels take a beat each, then it speeds up.
+  const u = ramp(t, SCAN);
+  const done = Math.floor(order.length * u * u * u);
+  const current = Math.min(order.length - 1, done);
+  const pointShown = t >= SCAN[0]! && t < SCAN[1]! + 0.3;
+  const centre = centres[order[current]!];
+  probeGroup.visible = screenCell.visible = pointShown && !!centre;
   if (pointShown && centre) {
     const i = order[current]!;
     placeProbe(centre.p, centre.n, i % params.grid, Math.floor(i / params.grid));
   }
 
-  // Once every pixel is done, the 3D scene takes the same shading.
-  shared.uLitAll.value = smooth(ramp(t, [fastEnd() + 0.5, fastEnd() + 2.0]));
+  // The colour image: on the screen, lifted off to its parking spot, then
+  // back onto the screen, where it is replaced by the product.
+  if (colourPanel) {
+    const away = smooth(ramp(t, ASIDE)) * (1 - smooth(ramp(t, BACK)));
+    const [sx, sy] = SCREEN.center;
+    const [px, py] = PARKED.center;
+    colourPanel.group.position.set(sx + (px - sx) * away, sy + (py - sy) * away, 0.05);
+    colourPanel.group.scale.setScalar(1 + (PARKED.scale - 1) * away);
+    colourPanel.group.visible = t < MULTIPLY[0]!;
+  }
 
-  const key = `${done}`;
+  // Once the product is on the screen, the 3D scene takes the same shading.
+  shared.uLitAll.value = smooth(ramp(t, LIT_3D));
+
+  // The screen: blank under the colour image, grey where the scan has been,
+  // then the product.
+  const product = ramp(t, MULTIPLY);
+  const key = `${done}/${Math.round(product * 32)}`;
   if (key === shownFill) return;
   shownFill = key;
-  const shaded = new Uint8Array(params.grid * params.grid);
-  for (let k = 0; k < done; k++) shaded[order[k]!] = 1;
-  for (let i = 0; i < shaded.length; i++) {
-    const src = shaded[i] ? litImage : flatImage;
-    pixels[i * 4] = src[i * 3]!;
-    pixels[i * 4 + 1] = src[i * 3 + 1]!;
-    pixels[i * 4 + 2] = src[i * 3 + 2]!;
+  const scanned = new Uint8Array(params.grid * params.grid);
+  for (let k = 0; k < done; k++) scanned[order[k]!] = 1;
+  for (let i = 0; i < scanned.length; i++) {
+    for (let c = 0; c < 3; c++) {
+      const under = scanned[i] ? greyImage[i * 3 + c]! : BLANK;
+      pixels[i * 4 + c] = under + (litImage[i * 3 + c]! - under) * product;
+    }
     pixels[i * 4 + 3] = 255;
   }
   screen.update(pixels);
