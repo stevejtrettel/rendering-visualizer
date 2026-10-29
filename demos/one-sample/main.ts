@@ -27,9 +27,13 @@
  * true image is mostly 0.1 .. 0.7 here), clipped hue-preservingly at 1. So a
  * lucky wait-path that lands on the lamp shows as a saturated pixel (its
  * value is many times the true one) and an aimed path as an ordinary one.
- * Light along a path is shown the same way: on segment k it is the radiance
- * leaving vertex k toward the eye, C / beta_k with C the sample's value
- * (estimator weight removed), and the aimed ray carries the lamp's own Le.
+ * Light along a path is the radiance leaving vertex k toward the eye on
+ * segment k, C / beta_k with C the sample's value (estimator weight
+ * removed); the aimed ray carries the lamp's own Le. Readability choice: the
+ * LINES are drawn LINE_GAIN brighter than the film, and never dimmer than
+ * LINE_FLOOR, keeping their hue. At true brightness the stretch back to the
+ * eye carries the pixel's own value (0.1 .. 0.4 here), which on black reads
+ * as a path that vanished while its pixel lit up. The film stays true.
  * `sample` draws a different set of paths.
  */
 
@@ -60,6 +64,8 @@ const MAX_BOUNCES = 8;
 const DARK = new THREE.Color(0x2a2f35);
 /** The aimed ray before light comes back: a direction chosen on purpose. */
 const AIMED = new THREE.Color(C.ochreDeep);
+const LINE_GAIN = 4; // returning light, drawn brighter than the film (see header)
+const LINE_FLOOR = 0.35; // and never dimmer than this, so a lit path stays visible
 const BLANK = 18;
 // Timing, seconds.
 const OUT_STEP = 0.8; // one bounce, every path
@@ -169,12 +175,12 @@ function trace(): void {
         litCount++;
         for (let k = 1; k <= n; k++) {
           if (k === aimed || k > vs.length - 1) {
-            color.push(display(Le.clone()));
+            color.push(lineDisplay(Le.clone()));
             continue;
           }
           const bk = vs[k]!.beta;
           const ch = (v: number, b: number) => (b > 0 ? (v * weight) / b : 0);
-          color.push(display(new THREE.Color(ch(C.r, bk[0]), ch(C.g, bk[1]), ch(C.b, bk[2]))));
+          color.push(lineDisplay(new THREE.Color(ch(C.r, bk[0]), ch(C.g, bk[1]), ch(C.b, bk[2]))));
         }
         const shown = display(C.clone());
         const p = (y * res + x) * 3;
@@ -222,6 +228,15 @@ function trace(): void {
 function display(c: THREE.Color): THREE.Color {
   const m = Math.max(c.r, c.g, c.b);
   return m > 1 ? c.multiplyScalar(1 / m) : c;
+}
+
+/** Returning light on a line: LINE_GAIN brighter, at least LINE_FLOOR, same hue. */
+function lineDisplay(c: THREE.Color): THREE.Color {
+  c.multiplyScalar(LINE_GAIN);
+  const m = Math.max(c.r, c.g, c.b);
+  if (m > 1) return c.multiplyScalar(1 / m);
+  if (m > 0 && m < LINE_FLOOR) return c.multiplyScalar(LINE_FLOOR / m);
+  return c;
 }
 
 let shownRevealed = -1;
