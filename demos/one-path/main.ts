@@ -34,10 +34,15 @@
  * yet carrying anything. It fills with colour from the lamp end.
  *
  * Click a cell of the film inset to throw a path from THAT pixel: its own
- * samples are traced until some reach the lamp, and of the first few the
- * brightest with at least two bounces is shown (the brightest outright is
- * almost always a one-bounce hop, and the slide is about bouncing). If none of PIXEL_SAMPLES do, its first sample is shown
- * as it is, dark, and the pixel stays black: most paths find nothing.
+ * samples are traced until PIXEL_POOL reach the lamp, those with at least
+ * two bounces are ranked by brightness (the slide is about bouncing), and
+ * one is drawn from the ranking at random, favouring the bright end but
+ * reaching anywhere in it (index = floor(len * u^2)). Taking the brightest
+ * outright always gave the shortest allowed path; this shows longer ones
+ * too. The draw is a hash of the pixel and the click count, so clicking the
+ * same cell again throws another path. If none of PIXEL_SAMPLES reach the
+ * lamp, its first sample is shown as it is, dark, and the pixel stays
+ * black: most paths find nothing.
  */
 
 import { createStage, createUI, C } from '@';
@@ -68,7 +73,7 @@ const SEARCH_SAMPLES = 400; // per pixel
 const MAX_CANDIDATES = 24; // shown, after ranking
 const SEARCH_POOL = 240; // gathered before ranking
 const PIXEL_SAMPLES = 4000; // tried for a clicked pixel
-const PIXEL_POOL = 12; // lit paths gathered for a clicked pixel before choosing
+const PIXEL_POOL = 16; // lit paths gathered for a clicked pixel before choosing
 /** The path before light travels it: a route, nothing carried yet. */
 const DARK = 0x2a2f35;
 const COLORED = new Set(['left', 'right']); // the red and green walls
@@ -167,7 +172,18 @@ function pathFromPixel(x: number, y: number): Candidate {
   }
   if (!lit.length) return first!;
   const bouncy = lit.filter((c) => c.vertices.length - 2 >= 2);
-  return (bouncy.length ? bouncy : lit).sort((a, b) => brightness(b) - brightness(a))[0]!;
+  const ranked = (bouncy.length ? bouncy : lit).sort((a, b) => brightness(b) - brightness(a));
+  const u = hash01(x, y, ++clicks);
+  return ranked[Math.floor(ranked.length * u * u)]!;
+}
+
+/** A deterministic number in [0, 1) from integers. */
+let clicks = 0;
+function hash01(...ns: number[]): number {
+  let h = 2166136261;
+  for (const n of ns) h = Math.imul(h ^ n, 16777619) ^ (h >>> 13);
+  h = Math.imul(h ^ (h >>> 16), 2246822507);
+  return ((h ^ (h >>> 13)) >>> 0) / 4294967296;
 }
 
 /** Real plain-PT samples, pixel by pixel, keeping the ones worth showing. */
