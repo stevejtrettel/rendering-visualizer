@@ -46,8 +46,10 @@
  * are seen from inside.) A scan runs over the image in raster order, slow
  * at first and speeding up; at each pixel an elbow sits where the pixel's
  * centre sees the scene, the normal and the line to the light meeting at
- * the point (Steve, 2026-10-29: no theta drawn, just the elbow, scanned over
- * the scene). The two factors are built apart and then multiplied (Steve:
+ * the point with the angle between them filled in as a wedge (Steve,
+ * 2026-10-29: no theta drawn, just the elbow, and it must be clear that
+ * there is an ANGLE). The normal is drawn dark, so it reads on the pale
+ * walls. The two factors are built apart and then multiplied (Steve:
  * a greyscale image of the angle, overlaid on the colour image):
  *
  *   1. the flat colour image lifts off the screen and parks small below it;
@@ -274,18 +276,30 @@ const pieces: Piece[] = PIECES.map((name) => {
 
 // --- The point being shaded (light) ----------------------------------------
 // Where a pixel's centre sees the scene: the point, and the elbow there, its
-// normal (bone) and the line to the light (ochre); and the pixel, outlined
-// on the plane and the screen. The light itself, a point.
+// normal (dark, with an arrowhead) and the line to the light (ochre), the
+// angle between them a filled wedge (rust); and the pixel, outlined on the
+// plane and the screen. The light itself, a point.
+const INK = 0x1d2227;
+const WEDGE_R = 0.55;
+const WEDGE_STEPS = 24;
 const probeGroup = new THREE.Group();
 const probeDot = new THREE.Mesh(
   new THREE.SphereGeometry(0.07, 16, 10),
-  new THREE.MeshBasicMaterial({ color: C.bone, toneMapped: false }),
+  new THREE.MeshBasicMaterial({ color: INK, toneMapped: false }),
 );
-const probeNormal = polyline([[0, 0, 0], [0, 0, 1]], { color: C.bone, width: 6 });
-const probeToLamp = polyline([[0, 0, 0], [0, 0, 1]], { color: C.ochre, width: 4 });
+const probeNormal = polyline([[0, 0, 0], [0, 0, 1]], { color: INK, width: 7 });
+const probeArrow = polyline([[0, 0, 0], [0, 0, 0], [0, 0, 0]], { color: INK, width: 7 });
+const probeToLamp = polyline([[0, 0, 0], [0, 0, 1]], { color: C.ochre, width: 6 });
+const wedgeGeometry = new THREE.BufferGeometry();
+wedgeGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(WEDGE_STEPS * 9), 3));
+const wedge = new THREE.Mesh(
+  wedgeGeometry,
+  new THREE.MeshBasicMaterial({ color: C.rust, transparent: true, opacity: 0.75, side: THREE.DoubleSide, toneMapped: false }),
+);
+wedge.frustumCulled = false;
 const zeros = (n: number) => Array.from({ length: n }, () => [0, 0, 0] as [number, number, number]);
 const planeCell = polyline(zeros(5), { color: C.ochre, width: 3 });
-probeGroup.add(probeDot, probeNormal, probeToLamp, planeCell);
+probeGroup.add(wedge, probeDot, probeNormal, probeArrow, probeToLamp, planeCell);
 // Drawn over the scene: from the viewer's side a wall or the ball would
 // otherwise hide half of what is being pointed at.
 probeGroup.traverse((o) => {
@@ -307,9 +321,35 @@ stage.add(lightPoint);
 function placeProbe(p: THREE.Vector3, normal: THREE.Vector3, x: number, y: number): void {
   const n = facingEye(p, normal);
   const q = p.clone().addScaledVector(n, 0.01);
+  const l = lightPoint.position.clone().sub(q).normalize();
   probeDot.position.copy(q);
-  setPolyline(probeNormal, [q, q.clone().addScaledVector(n, 1.0)]);
+  // The normal, with an arrowhead in the plane of the angle.
+  const tip = q.clone().addScaledVector(n, 1.1);
+  const across = l.clone().addScaledVector(n, -l.dot(n));
+  if (across.lengthSq() < 1e-6) across.set(1, 0, 0).addScaledVector(n, -n.x);
+  across.normalize();
+  setPolyline(probeNormal, [q, tip]);
+  setPolyline(probeArrow, [
+    tip.clone().addScaledVector(n, -0.18).addScaledVector(across, 0.11),
+    tip,
+    tip.clone().addScaledVector(n, -0.18).addScaledVector(across, -0.11),
+  ]);
   setPolyline(probeToLamp, [q, lightPoint.position]);
+  // The angle between them, filled: a fan of triangles from the point.
+  const angle = n.angleTo(l);
+  const axis = n.clone().cross(l);
+  if (axis.lengthSq() < 1e-9) axis.copy(across).cross(n);
+  axis.normalize();
+  const pos = wedgeGeometry.getAttribute('position') as THREE.BufferAttribute;
+  const rim = (k: number) => q.clone().addScaledVector(n.clone().applyAxisAngle(axis, (angle * k) / WEDGE_STEPS), WEDGE_R);
+  for (let k = 0; k < WEDGE_STEPS; k++) {
+    const a = rim(k);
+    const b = rim(k + 1);
+    pos.setXYZ(3 * k, q.x, q.y, q.z);
+    pos.setXYZ(3 * k + 1, a.x, a.y, a.z);
+    pos.setXYZ(3 * k + 2, b.x, b.y, b.z);
+  }
+  pos.needsUpdate = true;
   const res = params.grid;
   setPolyline(planeCell, cellOnPlane(desc.camera, PLANE_DISTANCE, res, x, y));
   setPolyline(screenCell, cellInPanel(SCREEN.center, SCREEN.height, res, x, y));
