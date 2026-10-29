@@ -24,8 +24,9 @@ const MATERIAL_TEST_VIEW: VizView = { eye: [2.2, 2.9, 6.1], target: [0, 1.0, 0.4
 
 // cornell-short is a cube with an open front and the camera outside it: a
 // near-head-on view, offset to one side, looks in through the opening with
-// the eye and film in front of it (a side view hides one wall's interior).
-const CORNELL_SHORT_VIEW: VizView = { eye: [6.4, 4.6, 13.2], target: [0, 1.8, 2.4] };
+// the eye and film in front of it (a side view hides one wall's interior),
+// from below ceiling height so the lamp on the ceiling is in view.
+const CORNELL_SHORT_VIEW: VizView = { eye: [6.4, 2.7, 13.2], target: [0, 2.1, 2.4] };
 
 export function vizViewFor(name: string): VizView {
   if (name === 'cornell-short') return CORNELL_SHORT_VIEW;

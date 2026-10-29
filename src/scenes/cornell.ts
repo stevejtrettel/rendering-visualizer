@@ -73,11 +73,31 @@ export const CORNELL: SceneDescription = {
 const SHORT_DEPTH = 4;
 const shorten = (v: readonly [number, number, number]): [number, number, number] =>
   v[2] === 13 ? [v[0], v[1], SHORT_DEPTH] : [v[0], v[1], v[2]];
+// The lamp is enlarged from 0.5 to 1.2 on a side, at CONSTANT TOTAL POWER
+// (Phi = pi L A, so radiance falls by (0.5/1.2)^2): one-path has to show the
+// audience where the light is, and a path has to be able to find it.
+const SHORT_LAMP_SIDE = 1.2;
+const lampScale = (0.5 / SHORT_LAMP_SIDE) ** 2;
+const CORNELL_LAMP_DESC = CORNELL.primitives.find((p) => p.name === 'light')!;
+const SHORT_LAMP = {
+  ...CORNELL_LAMP_DESC,
+  shape: {
+    kind: 'quad' as const,
+    q: [-SHORT_LAMP_SIDE / 2, 3.998, -SHORT_LAMP_SIDE / 2] as [number, number, number],
+    e1: [SHORT_LAMP_SIDE, 0, 0] as [number, number, number],
+    e2: [0, 0, SHORT_LAMP_SIDE] as [number, number, number],
+  },
+  emission: {
+    ...CORNELL_LAMP_DESC.emission!,
+    radiance: CORNELL_LAMP_DESC.emission!.radiance.map((c) => c * lampScale) as [number, number, number],
+  },
+};
 export const CORNELL_SHORT: SceneDescription = {
   ...CORNELL,
   camera: { eye: [0, 2, 7], lookAt: [0, 2, 0], up: [0, 1, 0], fovDegrees: 40 },
   primitives: CORNELL.primitives
     .filter((p) => p.name !== 'front')
+    .map((p) => (p.name === 'light' ? SHORT_LAMP : p))
     .map((p) =>
       p.shape.kind === 'quad'
         ? { ...p, shape: { ...p.shape, e1: shorten(p.shape.e1), e2: shorten(p.shape.e2) } }

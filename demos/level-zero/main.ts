@@ -26,7 +26,8 @@ import { buildScene } from '@/core/scene/scene';
 import { FirstHitColor, surfaceColors } from '@/core/integrators/first-hit';
 import { tracePixelGrid, type PixelGridTrace } from '@/trace/pixel-grid';
 import { sceneToThree } from '@/viz/three-scene';
-import { ImagePlaneElement, imagePlaneFrame } from '@/viz/image-plane';
+import { ImagePlaneElement } from '@/viz/image-plane';
+import { cellOnPlane as cellOnPlaneCorners, cellInPanel } from '@/viz/film-cell';
 import { FilmPanel } from '@/viz/film-panel';
 import { polyline, setPolyline } from '@/viz/lines';
 import { srgbEncode } from '@/render/film';
@@ -194,26 +195,8 @@ function outlineCell(i: number): void {
   const res = trace.res;
   const x = i % res;
   const y = Math.floor(i / res);
-
-  // On the plane, exactly where ImagePlaneElement puts the cell.
-  const { center, right, up, forward, halfW, halfH } = imagePlaneFrame(SCENES[params.scene].camera, PLANE_DISTANCE);
-  const cell = (2 * halfW) / res;
-  const x0 = -halfW + x * cell;
-  const y0 = halfH - (y + 1) * cell; // raster y grows downward
-  const corner = (px: number, py: number) =>
-    center.clone().addScaledVector(right, px).addScaledVector(up, py).addScaledVector(forward, -0.01);
-  setPolyline(cellOnPlane, [
-    corner(x0, y0), corner(x0 + cell, y0), corner(x0 + cell, y0 + cell), corner(x0, y0 + cell), corner(x0, y0),
-  ]);
-
-  // In the inset, row 0 at the top.
-  const h = INSET.height;
-  const cs = h / res;
-  const left = INSET.center[0] - h / 2 + x * cs;
-  const top = INSET.center[1] + h / 2 - y * cs;
-  setPolyline(cellInInset, [
-    [left, top, 0.01], [left + cs, top, 0.01], [left + cs, top - cs, 0.01], [left, top - cs, 0.01], [left, top, 0.01],
-  ]);
+  setPolyline(cellOnPlane, cellOnPlaneCorners(SCENES[params.scene].camera, PLANE_DISTANCE, res, x, y));
+  setPolyline(cellInInset, cellInPanel(INSET.center, INSET.height, res, x, y));
 }
 
 function paintInset(t: number): void {

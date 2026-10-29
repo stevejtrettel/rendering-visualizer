@@ -81,6 +81,12 @@ export const INFO: Record<string, DemoInfo> = {
       'Before path tracing: one ray leaves through each pixel of the film grid, stops at the first thing it hits, and the pixel takes that thing\'s colour. No light, no bounces. The same scene, camera and grid as pixel-grid, which is this figure with everything added.',
     section: 'Act 0 — the renderer',
   },
+  'one-path': {
+    title: 'One path, all the way',
+    blurb:
+      "Level zero's set-up, but one pixel's ray keeps bouncing until it lands on the lamp; then light comes back down the same path, multiplied at each bounce by exactly the factor the path tracer applied there, and the pixel takes what arrives. A real plain-PT sample, chosen to touch a coloured wall.",
+    section: 'Act 1 — one path',
+  },
   'pixel-grid': {
     title: 'An image being computed',
     blurb:
