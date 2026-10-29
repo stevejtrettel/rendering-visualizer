@@ -93,6 +93,12 @@ export const INFO: Record<string, DemoInfo> = {
       "one-path for the whole film at once: every pixel's ray goes out in lockstep, the ones that land on the lamp fill with colour from the lamp end, and the rest stay dark. One real plain-PT sample per pixel: a noisy image, and a count of how few paths found the light.",
     section: 'Act 1 — one path',
   },
+  'many-samples': {
+    title: 'Many paths per pixel',
+    blurb:
+      "one-sample again and again: each pass traces fresh paths for every pixel, its noisy partial image hovers above the running image and drops into it. The first passes are slow, then they speed up and the average settles.",
+    section: 'Act 1 — one path',
+  },
   'pixel-grid': {
     title: 'An image being computed',
     blurb:
