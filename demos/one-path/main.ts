@@ -36,13 +36,15 @@
  * yet carrying anything. It fills with colour from the lamp end.
  *
  * Click a pixel of the screen to throw a path from THAT pixel: its own
- * samples are traced until PIXEL_POOL reach the lamp, those with at least
- * two bounces are ranked by brightness (the slide is about bouncing), and
- * one is drawn from the ranking at random, favouring the bright end but
- * reaching anywhere in it (index = floor(len * u^2)). Taking the brightest
- * outright always gave the shortest allowed path; this shows longer ones
- * too. The draw is a hash of the pixel and the click count, so clicking the
- * same cell again throws another path. If none of PIXEL_SAMPLES reach the
+ * samples are traced until PIXEL_POOL reach the lamp; of those with at
+ * least two bounces (the slide is about bouncing), a bounce count is drawn
+ * evenly from the counts present, and the brightest path with that count
+ * is shown, so it can be read. Ranking by brightness alone always picked
+ * the shortest paths (each bounce absorbs some light); drawing the length
+ * first spreads them out (Steve, 2026-10-29: more varied lengths). The
+ * opening path is chosen the same way from the search's candidates. The
+ * draw is a hash of the pixel and the click count, so clicking the same
+ * cell again throws another path. If none of PIXEL_SAMPLES reach the
  * lamp, its first sample is shown as it is, dark, and the pixel stays
  * black: most paths find nothing.
  *
@@ -85,7 +87,7 @@ const SEARCH_SAMPLES = 400; // per pixel
 const MAX_CANDIDATES = 24; // shown, after ranking
 const SEARCH_POOL = 240; // gathered before ranking
 const PIXEL_SAMPLES = 4000; // tried for a clicked pixel
-const PIXEL_POOL = 16; // lit paths gathered for a clicked pixel before choosing
+const PIXEL_POOL = 48; // lit paths gathered for a clicked pixel before choosing
 /** The path before light travels it: a route, nothing carried yet. */
 const DARK = 0x2a2f35;
 const COLORED = new Set(['left', 'right']); // the red and green walls
@@ -210,6 +212,7 @@ interface Candidate {
   vertices: VertexRecord[]; // camera .. the lamp hit inclusive, or the whole walk if it found none
 }
 let candidates: Candidate[] = [];
+let pool: Candidate[] = [];
 /** A path thrown from a clicked pixel; overrides `path` until that is moved. */
 let chosen: Candidate | null = null;
 
@@ -248,9 +251,15 @@ function pathFromPixel(x: number, y: number): Candidate {
   }
   if (!lit.length) return first!;
   const bouncy = lit.filter((c) => c.vertices.length - 2 >= 2);
-  const ranked = (bouncy.length ? bouncy : lit).sort((a, b) => brightness(b) - brightness(a));
-  const u = hash01(x, y, ++clicks);
-  return ranked[Math.floor(ranked.length * u * u)]!;
+  return byLength(bouncy.length ? bouncy : lit, hash01(x, y, ++clicks));
+}
+
+/** A bounce count drawn evenly (u in [0, 1)) from those present, then the brightest path with it. */
+function byLength(paths: Candidate[], u: number): Candidate {
+  const bounces = (c: Candidate) => c.vertices.length - 2;
+  const counts = [...new Set(paths.map(bounces))].sort((a, b) => a - b);
+  const n = counts[Math.floor(u * counts.length)]!;
+  return paths.filter((c) => bounces(c) === n).sort((a, b) => brightness(b) - brightness(a))[0]!;
 }
 
 /** A deterministic number in [0, 1) from integers. */
@@ -289,6 +298,7 @@ function search(): void {
       }
     }
   }
+  pool = [...candidates]; // all of them, every length: the opening path is drawn from here
   candidates.sort((a, b) => brightness(b) - brightness(a));
   candidates = candidates.slice(0, MAX_CANDIDATES);
   pathControl.max(Math.max(0, candidates.length - 1));
@@ -336,7 +346,7 @@ function build(): void {
     painted.set(cand.y * params.grid + cand.x, lit ? segColor[1]!.clone() : new THREE.Color(0, 0, 0));
   }
   disposeBuilt();
-  const cand = chosen ?? candidates[params.path];
+  const cand = chosen ?? (pool.length ? byLength(pool, hash01(params.grid, 3)) : undefined);
   insetLit = null;
   if (!cand) {
     setText(caption, 'no path found at this resolution');
