@@ -2,10 +2,10 @@
  * SHOWS: how fast the noise goes away, per pixel and for the whole image.
  * The image lies tilted back like a floor, and on every pixel stands a bar
  * as tall as that pixel's standard error; beside it, a graph of the image's
- * mean standard error against the number of paths per pixel, with a dashed
- * c / sqrt(N) for comparison (Steve, 2026-10-29: a bar graph over the image
- * per pixel, then a single number per image plotted on a graph; standard
- * error, ordinary axes).
+ * mean standard error against the number of paths per pixel (Steve,
+ * 2026-10-29: a bar graph over the image per pixel, then a single number
+ * per image plotted on a graph; standard error, ordinary axes; no fitted
+ * c / sqrt(N) drawn for comparison).
  *
  * Which tracer (`?tracer=` in the URL): plain (bounce until the lamp is hit
  * by luck: one-path's), aim (bounce a while, then aim at the lamp: one-sample
@@ -22,13 +22,11 @@
  * estimate, so it wobbles a little before it settles. It falls like
  * 1 / sqrt(N) because s settles to the pixel's own spread and only the
  * sqrt(N) changes: the paths stay as wild as ever, their average improves.
- * The graph's number is the mean of the bars; the dashed curve is
- * c / sqrt(N), c least-squares fitted over N >= N_FIT. Not fitted early: the
- * plain tracer's path values are dominated by rare lucky hits on the lamp,
- * so with few paths a pixel's own estimate of its spread runs low and grows
- * as the rare hits turn up, and a fit there sets the curve too low. (An
- * honest effect, and a talking point: early on, a heavy-tailed estimator
- * underestimates its own error.) Undefined at N = 1 (one path has
+ * The graph's number is the mean of the bars. (The plain tracer's path
+ * values are dominated by rare lucky hits on the lamp, so with few paths a
+ * pixel's own estimate of its spread runs low and grows as the rare hits
+ * turn up: early on, a heavy-tailed estimator underestimates its own
+ * error.) Undefined at N = 1 (one path has
  * no spread), so the figure starts at N = 2.
  *
  * Readability choices: bar heights are capped at BAR_CAP (the few pixels
@@ -59,7 +57,6 @@ const SCENE: SceneName = 'cornell-short';
 const RES = 45; // as one-sample and many-samples
 const MAX_N = 256;
 const MAX_BOUNCES = 8;
-const N_FIT = 32; // the dashed curve is fitted to N >= this (see header)
 const SIZE = 4; // the image's side, world units
 const BAR_CAP = 1.6; // world units
 const BAR_FILL = 0.8; // a bar's width as a share of its pixel
@@ -120,11 +117,9 @@ const toGraph = (n: number, v: number, vMax: number): [number, number, number] =
 stage.hud.add(
   polyline([[g.left, g.bottom + g.height, 0], [g.left, g.bottom, 0], [g.left + g.width, g.bottom, 0]], { color: C.ash, width: 2 }),
 );
-// Curves as segment sets, which grow safely (lines.ts, setSegments); the
-// c / sqrt(N) reference is dashed by drawing every other short piece.
+// Curves as segment sets, which grow safely (lines.ts, setSegments).
 const curves = Object.fromEntries(ON_GRAPH.map((n) => [n, segments({ width: 4 })])) as Record<Tracer, ReturnType<typeof segments>>;
-const references = Object.fromEntries(ON_GRAPH.map((n) => [n, segments({ width: 2 })])) as Record<Tracer, ReturnType<typeof segments>>;
-for (const n of ON_GRAPH) stage.hud.add(references[n], curves[n]);
+for (const n of ON_GRAPH) stage.hud.add(curves[n]);
 const curveLabels = Object.fromEntries(
   ON_GRAPH.map((n) => [n, label(COMPARE ? n : '', { size: 0.045, color: CURVE_COLOUR[n], anchorX: 'left', anchorY: 'middle' })]),
 ) as Record<Tracer, ReturnType<typeof label>>;
@@ -135,13 +130,10 @@ const solid = (count: number, hex: number) => {
   for (let i = 0; i < count; i += 3) c.toArray(out, i);
   return out;
 };
-/** A polyline through pts as segments; every other piece only, if dashed. */
-function drawPolyline(lines: ReturnType<typeof segments>, pts: [number, number, number][], hex: number, dashed = false): void {
+/** A polyline through pts, as segments. */
+function drawPolyline(lines: ReturnType<typeof segments>, pts: [number, number, number][], hex: number): void {
   const pos: number[] = [];
-  for (let k = 1; k < pts.length; k++) {
-    if (dashed && k % 2) continue;
-    pos.push(...pts[k - 1]!, ...pts[k]!);
-  }
+  for (let k = 1; k < pts.length; k++) pos.push(...pts[k - 1]!, ...pts[k]!);
   setSegments(lines, new Float32Array(pos), solid(pos.length, hex));
 }
 for (const n of [64, 128, 192, 256]) {
@@ -263,24 +255,14 @@ stage.frame((t) => {
   if (bars.instanceColor) bars.instanceColor.needsUpdate = true;
   imageTexture.needsUpdate = true;
 
-  // The graph: each tracer's mean standard error from N = 2 to now, and its
-  // c / sqrt(N), dashed. One vertical scale for all, set by the highest.
+  // The graph: each tracer's mean standard error from N = 2 to now. One
+  // vertical scale for all, set by the highest.
   const vMax = Math.max(...ON_GRAPH.map((k) => meanError[k][1]!)) * 1.05;
   for (const tracer of ON_GRAPH) {
     const curve = meanError[tracer];
     const pts: [number, number, number][] = [];
     for (let k = 2; k <= n; k++) pts.push(toGraph(k, curve[k - 1]!, vMax));
     drawPolyline(curves[tracer], pts, CURVE_COLOUR[tracer]);
-    let num = 0;
-    let den = 0;
-    for (let k = N_FIT; k <= MAX_N; k++) {
-      num += curve[k - 1]! / Math.sqrt(k);
-      den += 1 / k;
-    }
-    const c = num / den;
-    const ref: [number, number, number][] = [];
-    for (let k = 2; k <= MAX_N; k += 2) ref.push(toGraph(k, c / Math.sqrt(k), vMax));
-    drawPolyline(references[tracer], ref, C.ash, true);
     const end = pts[pts.length - 1]!;
     curveLabels[tracer].position.set(end[0] + 0.02, end[1], 0);
   }
