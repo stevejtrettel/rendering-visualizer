@@ -93,6 +93,12 @@ export const INFO: Record<string, DemoInfo> = {
       "one-path for the whole film at once: every pixel's ray goes out in lockstep, the ones that land on the lamp fill with colour from the lamp end, and the rest stay dark. One real plain-PT sample per pixel: a noisy image, and a count of how few paths found the light.",
     section: 'Act 1 — one path',
   },
+  rasterize: {
+    title: 'Rasterization',
+    blurb:
+      "The map from scene to screen: the camera's eye and image plane appear in front of the box, every point of the scene slides along its line to the eye until the scene lies flat on the plane (depth order kept, as a z-buffer keeps it), and the screen fills with the flat-colour image.",
+    section: 'Act 1 — one path',
+  },
   'scene-and-screen': {
     title: 'Scene and screen',
     blurb:
