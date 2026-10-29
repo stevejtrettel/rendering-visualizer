@@ -20,9 +20,10 @@
  * was made with. If they no longer match the constants below, the page
  * says so instead of showing an image of a different render.
  *
- * The tracer is pt-nee (path tracing that also aims at the lamp at every
- * bounce): an unbiased estimator of the same image as the pt-aim of the
- * slides before, the standard choice for a still. The live render's
+ * The live view is plain path tracing (one-path's tracer), slow and noisy.
+ * The converged image is pt-nee (aims at the lamp at every bounce): the
+ * standard choice for a still, and an unbiased estimator of the same image,
+ * so it is where the live view is heading, reached by a faster road. The live render's
  * intermediate states depend on worker timing, so they do not replay
  * exactly; only the converged image is deterministic, and that is what is
  * saved. Bake mode uses a WorkerPool, which merges whole passes in worker
@@ -83,7 +84,11 @@ ui.params.add(params, 'image', ['live', 'converged']).onChange(show);
 // --- The live render ---------------------------------------------------------
 const bakeTo = Number(new URLSearchParams(location.search).get('bake')) || 0;
 const liveRgba = new Uint8ClampedArray(RES * RES * 4);
-const live = bakeTo ? null : new LiveRender({ description: SCENES[SCENE], res: RES, tracer: 'nee', maxBounces: 8, maxSpp: LIVE_SPP });
+// The live view traces plainly, light only when a bounce happens onto the
+// lamp, so it converges slowly and noisily, as move-camera (Steve,
+// 2026-10-29). It converges to the same image as the baked pt-nee one, by a
+// much slower road.
+const live = bakeTo ? null : new LiveRender({ description: SCENES[SCENE], res: RES, tracer: 'plain', maxBounces: 8, maxSpp: LIVE_SPP });
 if (bakeTo) {
   // Bake mode: whole passes, merged in worker order, developed once at the
   // end (developing every pass at RES x RES piled up and crashed the page).
