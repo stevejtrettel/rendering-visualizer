@@ -39,7 +39,7 @@ import { imagePlaneFrame } from '@/viz/image-plane';
 import { FilmPanel } from '@/viz/film-panel';
 import { SCREEN, SCREEN_SHIFT } from '@/viz/screen-layout';
 import { polyline, segments, setPolyline, setSegments } from '@/viz/lines';
-import { label, setText } from '@/viz/text';
+import { label } from '@/viz/text';
 import { ASPECT } from '@/viz/stage';
 import * as THREE from 'three';
 
@@ -117,8 +117,7 @@ stage.hud.add(screen.group);
 stage.hud.add(label('screen', { size: 0.08, color: C.bone, anchorX: 'center', anchorY: 'bottom', position: [SCREEN.center[0], SCREEN.center[1] + SCREEN.height / 2 + 0.05, 0] }));
 const sceneLabel = label('scene', { size: 0.08, color: C.bone, anchorX: 'center', anchorY: 'bottom' });
 stage.hud.add(sceneLabel);
-const caption = label('', { size: 0.06, color: C.bone, anchorX: 'center', anchorY: 'top', position: [SCREEN.center[0], SCREEN.center[1] - SCREEN.height / 2 - 0.04, 0] });
-stage.hud.add(caption);
+// No count under the screen (Steve, 2026-10-29): the picture says it.
 
 // --- Rendering -----------------------------------------------------------------
 const integrator = new UnidirectionalPT({ maxBounces: 8, rrStartDepth: 99, sampleNEE: false });
@@ -164,9 +163,6 @@ function renderSome(): void {
     rgba[i * 4 + 3] = 255;
   }
   screen.update(rgba);
-  // The average count, not completed passes, so it keeps up with the picture.
-  const perPixel = pass + cursor / order.length;
-  setText(caption, perPixel < 10 ? `${perPixel.toFixed(1)} paths per pixel` : `${Math.floor(perPixel).toLocaleString('en-US')} paths per pixel`);
 }
 
 /** The camera moved: draw it there, and throw the picture away. */
