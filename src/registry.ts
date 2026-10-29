@@ -87,6 +87,12 @@ export const INFO: Record<string, DemoInfo> = {
       "Level zero's set-up, but one pixel's ray keeps bouncing until it lands on the lamp; then light comes back down the same path, multiplied at each bounce by exactly the factor the path tracer applied there, and the pixel takes what arrives. A real plain-PT sample, chosen to touch a coloured wall.",
     section: 'Act 1 — one path',
   },
+  'one-sample': {
+    title: 'One path per pixel',
+    blurb:
+      "one-path for the whole film at once: every pixel's ray goes out in lockstep, the ones that land on the lamp fill with colour from the lamp end, and the rest stay dark. One real plain-PT sample per pixel: a noisy image, and a count of how few paths found the light.",
+    section: 'Act 1 — one path',
+  },
   'pixel-grid': {
     title: 'An image being computed',
     blurb:

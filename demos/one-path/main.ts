@@ -56,6 +56,7 @@ import { polyline, setPolyline } from '@/viz/lines';
 import { srgbEncode } from '@/render/film';
 import { label, setText } from '@/viz/text';
 import { ASPECT } from '@/viz/stage';
+import { lampOutline, lampColor, translucent } from '@/viz/short-box';
 import * as THREE from 'three';
 
 // --- Figure spec -----------------------------------------------------------
@@ -89,15 +90,7 @@ const sceneGroup = sceneToThree(desc);
 stage.add(sceneGroup);
 // The near side wall (green, the one the view looks across) is drawn
 // translucent, still green, so a path that goes behind it stays visible.
-// sceneToThree adds one mesh per primitive, in order.
-{
-  const i = desc.primitives.findIndex((p) => p.name === 'right');
-  const wall = sceneGroup.children[i] as THREE.Mesh;
-  const mat = wall.material as THREE.MeshStandardMaterial;
-  mat.transparent = true;
-  mat.opacity = 0.3;
-  mat.depthWrite = false;
-}
+translucent(sceneGroup, desc, 'right');
 const view = vizViewFor(SCENE);
 stage.camera.position.set(...view.eye);
 stage.controls?.target.set(...view.target);
@@ -107,18 +100,10 @@ const caption = label('', { size: 0.06, color: C.bone, anchorX: 'center', anchor
 stage.hud.add(caption);
 
 // The lamp, outlined so nobody has to guess where the light is.
-const lampDesc = desc.primitives.find((p) => p.name === 'light')!;
-const Le = new THREE.Color(...lampDesc.emission!.radiance);
+const { Le } = lampColor(desc);
 const LeMax = Math.max(Le.r, Le.g, Le.b);
-const lampOutline = (() => {
-  if (lampDesc.shape.kind !== 'quad') throw new Error('one-path expects a quad lamp');
-  const { q, e1, e2 } = lampDesc.shape;
-  const o = new THREE.Vector3(q[0], q[1] - 0.01, q[2]);
-  const a = new THREE.Vector3(...e1);
-  const b = new THREE.Vector3(...e2);
-  return polyline([o, o.clone().add(a), o.clone().add(a).add(b), o.clone().add(b), o], { color: C.ochre, width: 4 });
-})();
-stage.add(lampOutline);
+const lamp = lampOutline(desc);
+stage.add(lamp);
 
 const pathGroup = new THREE.Group();
 const planeGroup = new THREE.Group();
@@ -384,7 +369,7 @@ stage.frame((t) => {
 
   // The hit: the lamp's outline swells for a moment.
   const pulse = built.lit && t >= hitAt && t < hitAt + AT_LIGHT ? Math.sin((Math.PI * (t - hitAt)) / AT_LIGHT) : 0;
-  lampOutline.material.linewidth = 4 + 8 * pulse;
+  lamp.material.linewidth = 4 + 8 * pulse;
 
   // Returning: segment k fills with its colour from vertex k back to k-1,
   // and the dot it arrives at takes the new colour.

@@ -15,6 +15,8 @@ import * as THREE from 'three';
 import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { C } from './style';
 
 const materials = new Set<LineMaterial>();
@@ -86,6 +88,40 @@ export function polyline(points: Pt[], opts: LineOptions = {}): Line2 {
 export function setPolyline(line: Line2, points: Pt[]): void {
   (line.geometry as LineGeometry).setPositions(flatten(points));
   line.computeLineDistances();
+}
+
+/**
+ * Many thick segments in one draw call, each with its own colour: for a
+ * figure that shows hundreds of rays at once, where a Line2 per segment
+ * would be hundreds of objects. Fill with setSegments every frame.
+ */
+export function segments(opts: { width?: number; opacity?: number; toneMapped?: boolean } = {}): LineSegments2 {
+  const { width = 2, opacity = 1, toneMapped = true } = opts;
+  const mat = new LineMaterial({
+    color: 0xffffff,
+    linewidth: width,
+    worldUnits: false,
+    vertexColors: true,
+    transparent: opacity < 1,
+    opacity,
+  });
+  mat.toneMapped = toneMapped;
+  materials.add(mat);
+  const lines = new LineSegments2(new LineSegmentsGeometry(), mat);
+  lines.frustumCulled = false; // rewritten every frame
+  return lines;
+}
+
+/**
+ * Replace a segment set's contents: `positions` holds 6 numbers per segment
+ * (both ends), `colors` 6 per segment (an rgb per end). An empty set hides it.
+ */
+export function setSegments(lines: LineSegments2, positions: Float32Array, colors: Float32Array): void {
+  lines.visible = positions.length > 0;
+  if (!lines.visible) return;
+  const geom = lines.geometry as LineSegmentsGeometry;
+  geom.setPositions(positions);
+  geom.setColors(colors);
 }
 
 /** Sample `f` over [a, b] and draw it as a curve in the z = 0 plane. */
