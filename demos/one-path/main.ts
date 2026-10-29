@@ -25,7 +25,13 @@
  *
  * Which path: the search runs pixel by pixel, sample by sample, and keeps
  * paths that reach the lamp in 2..5 bounces after touching a coloured wall,
- * so the tint is visible. `path` steps through those candidates.
+ * so the tint is visible. They are ranked by how bright the light is when it
+ * reaches the pixel, so the default (path 0) is one whose result can be seen:
+ * red-then-green nearly cancels, honestly, and sinks down the list. `path`
+ * steps through the ranking.
+ *
+ * Before the light comes back, the path is drawn dark: it is a route, not
+ * yet carrying anything. It fills with colour from the lamp end.
  */
 
 import { createStage, createUI, C } from '@';
@@ -51,7 +57,10 @@ const PLANE_DISTANCE = 1.4; // as level-zero and pixel-grid
 const INSET = { center: [-1.3, -0.42] as [number, number], height: 0.62 };
 const MAX_BOUNCES = 8;
 const SEARCH_SAMPLES = 400; // per pixel
-const MAX_CANDIDATES = 24;
+const MAX_CANDIDATES = 24; // shown, after ranking
+const SEARCH_POOL = 240; // gathered before ranking
+/** The path before light travels it: a route, nothing carried yet. */
+const DARK = 0x2a2f35;
 const COLORED = new Set(['left', 'right']); // the red and green walls
 // Timing, seconds.
 const GROW = 1.0; // one outgoing segment
@@ -131,9 +140,9 @@ function search(): void {
   const integrator = new UnidirectionalPT({ maxBounces: MAX_BOUNCES, rrStartDepth: 99, sampleNEE: false });
   const sampler = new IndependentSampler(0);
   candidates = [];
-  for (let s = 0; s < SEARCH_SAMPLES && candidates.length < MAX_CANDIDATES; s++) {
-    for (let y = 0; y < res && candidates.length < MAX_CANDIDATES; y++) {
-      for (let x = 0; x < res && candidates.length < MAX_CANDIDATES; x++) {
+  for (let s = 0; s < SEARCH_SAMPLES && candidates.length < SEARCH_POOL; s++) {
+    for (let y = 0; y < res && candidates.length < SEARCH_POOL; y++) {
+      for (let x = 0; x < res && candidates.length < SEARCH_POOL; x++) {
         const key = pixelSeedKey(x, y, s);
         sampler.startPixelSample(key);
         const recorder = new ArrayRecorder();
@@ -149,6 +158,14 @@ function search(): void {
       }
     }
   }
+  // Brightest result first: the pixel value is Le * beta_n, so rank by the
+  // luminance of beta_n weighted by the lamp's colour.
+  const brightness = (c: Candidate) => {
+    const b = c.vertices[c.vertices.length - 1]!.beta;
+    return 0.2126 * Le.r * b[0] + 0.7152 * Le.g * b[1] + 0.0722 * Le.b * b[2];
+  };
+  candidates.sort((a, b) => brightness(b) - brightness(a));
+  candidates = candidates.slice(0, MAX_CANDIDATES);
   pathControl.max(Math.max(0, candidates.length - 1));
   params.path = Math.min(params.path, Math.max(0, candidates.length - 1));
   pathControl.updateDisplay();
@@ -218,7 +235,7 @@ function build(): void {
   const back: ReturnType<typeof polyline>[] = [];
   const dots: THREE.Mesh[] = [];
   for (let k = 1; k <= n; k++) {
-    const o = polyline([pts[k - 1]!, pts[k - 1]!], { color: C.bone, width: 6 });
+    const o = polyline([pts[k - 1]!, pts[k - 1]!], { color: DARK, width: 6 });
     const b = polyline([pts[k]!, pts[k]!], { color: C.bone, width: 11 });
     // Colours here are computed, not scenery: show them as they are.
     (b.material as THREE.Material & { color: THREE.Color }).color.copy(segColor[k]!);
@@ -228,7 +245,7 @@ function build(): void {
     pathGroup.add(o, b);
     const dot = new THREE.Mesh(
       new THREE.SphereGeometry(0.08, 20, 12),
-      new THREE.MeshBasicMaterial({ color: C.bone, toneMapped: false }),
+      new THREE.MeshBasicMaterial({ color: DARK, toneMapped: false }),
     );
     dot.position.copy(pts[k]!);
     dots.push(dot);
@@ -328,7 +345,7 @@ stage.frame((t) => {
     if (u > 0) {
       const front = pts[k]!.clone().lerp(pts[k - 1]!, u);
       setPolyline(back[k - 1]!, [pts[k]!, front]);
-      // The white outgoing line gives way to the colour, so the two never overlap.
+      // The dark outgoing line gives way to the colour, so the two never overlap.
       out[k - 1]!.visible = u < 1;
       if (u < 1) setPolyline(out[k - 1]!, [pts[k - 1]!, front]);
     }
@@ -336,11 +353,11 @@ stage.frame((t) => {
       const dot = dots[k - 2]!;
       const mat = dot.material as THREE.MeshBasicMaterial;
       if (u >= 1) mat.color.copy(built.segColor[k - 1]!);
-      else mat.color.setHex(C.bone);
+      else mat.color.setHex(DARK);
     }
   }
   // The lamp-end dot glows in the lamp's own colour once it is hit.
-  (dots[n - 1]!.material as THREE.MeshBasicMaterial).color.copy(t >= hitAt ? built.segColor[n]! : new THREE.Color(C.bone));
+  (dots[n - 1]!.material as THREE.MeshBasicMaterial).color.copy(t >= hitAt ? built.segColor[n]! : new THREE.Color(DARK));
 
   paintInset(t >= pixelAt + AT_PIXEL * 0.5);
 
