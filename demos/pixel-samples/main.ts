@@ -9,10 +9,10 @@
  *     black (found nothing), most an ordinary shade, a few very bright. That
  *     disagreement is the variance, and the mosaic stays a patchwork;
  *   - the big square: the pixel itself, the average of the squares so far.
- *     It lurches with each new square early on and then stops moving;
- *   - the histogram: the paths' brightnesses (luminance), as a share of the
- *     paths so far, with the average marked. More paths fill in its shape;
- *     they do not narrow it.
+ *     It lurches with each new square early on and then stops moving.
+ *
+ * (A histogram of the paths' brightness was tried under the two and taken
+ * out, Steve 2026-10-29: the mosaic and the average carry it.)
  *
  * Same tracer (pt-aim), seeds (pass s is sample s of every pixel), RES and
  * luminance as `variance`, so this is one of its pixels.
@@ -30,8 +30,7 @@
  *
  * Readability: colours are shown at exposure 1, clipped hue-preservingly at
  * 1, as on the slides before, so a very bright path shows as a saturated
- * square. The histogram's last bin collects everything from HIST_QUANTILE
- * of the pixel's values up. N advances one path at a time for the first
+ * square. N advances one path at a time for the first
  * SLOW, then in equal steps of log N.
  */
 
@@ -61,14 +60,11 @@ const PICK_BAND = [0.15, 0.6];
 const PICK_MAX = 5;
 const PICK_DARK = 0.1; // the share of candidates, fewest black paths first, the pick is made from
 const MARGIN = 4; // pixels kept clear of the image's edge, so the chosen one is easy to point at
-const BINS = 24;
-const HIST_QUANTILE = 0.97;
 const BLANK = 18;
 /** HUD layout. */
-const IMAGE = { center: [-1.38, 0.22] as [number, number], height: 0.7 };
-const MOSAIC = { center: [-0.3, 0.22] as [number, number], height: 0.9 };
-const PIXEL = { center: [0.95, 0.22] as [number, number], height: 0.6 };
-const HIST = { left: -0.75, right: 1.25, bottom: -0.78, height: 0.36 };
+const IMAGE = { center: [-1.38, -0.05] as [number, number], height: 0.75 };
+const MOSAIC = { center: [-0.25, -0.05] as [number, number], height: 1.15 };
+const PIXEL = { center: [1.05, -0.05] as [number, number], height: 0.75 };
 // Timing, seconds.
 const START = 0.8;
 const SLOW = 12; // the first paths, one at a time
@@ -111,27 +107,12 @@ const solid = (count: number, hex: number) => {
   stage.hud.add(grid);
 }
 
-// The histogram: a bar per bin, its height the share of paths in the bin.
-const binWidth = (HIST.right - HIST.left) / BINS;
-const histBars = new THREE.InstancedMesh(
-  new THREE.PlaneGeometry(binWidth * 0.86, 1).translate(0, 0.5, 0),
-  new THREE.MeshBasicMaterial({ color: C.bone, toneMapped: false }),
-  BINS,
-);
-stage.hud.add(histBars);
-stage.hud.add(polyline([[HIST.left, HIST.bottom, 0], [HIST.right, HIST.bottom, 0]], { color: C.ash, width: 2 }));
-stage.hud.add(label('0', { size: 0.045, color: C.ash, anchorX: 'center', anchorY: 'top', position: [HIST.left + binWidth / 2, HIST.bottom - 0.02, 0] }));
-const meanMark = polyline(zeros(2), { color: C.ochre, width: 4 });
-stage.hud.add(meanMark);
-
 const caption = label('', { size: 0.06, color: C.bone, anchorX: 'center', anchorY: 'top', position: [PIXEL.center[0], PIXEL.center[1] - PIXEL.height / 2 - 0.05, 0] });
 stage.hud.add(caption);
 
 // --- The pixel and its paths ------------------------------------------------------
 /** Each path's colour (linear) and luminance, in arrival order. */
 let paths: { rgb: [number, number, number]; lum: number }[] = [];
-let histMax = 1;
-let histTop = 1; // the largest bin share at MAX_N, which sets the vertical scale
 
 const scene = buildScene(SCENES[SCENE], RES, RES);
 const integrator = new AimAtLightPT({ maxBounces: MAX_BOUNCES });
@@ -219,9 +200,6 @@ function choose(px: number, py: number): void {
     const rgb = sample(px, py, s);
     paths.push({ rgb, lum: luminance(rgb) });
   }
-  const sorted = paths.map((p) => p.lum).sort((a, b) => a - b);
-  histMax = Math.max(1e-3, sorted[Math.floor(HIST_QUANTILE * (MAX_N - 1))]!);
-  histTop = Math.max(...histogram(MAX_N)) / MAX_N;
   shownN = -1;
   stage.t = 0;
   console.log(`[pixel-samples] pixel (${px}, ${py}): ${paths.filter((p) => p.lum === 0).length} of ${MAX_N} paths found nothing`);
@@ -255,13 +233,6 @@ function shown(c: [number, number, number] | number[]): [number, number, number]
   return [c[0]! * k, c[1]! * k, c[2]! * k];
 }
 
-const binOf = (lum: number) => Math.min(BINS - 1, Math.floor((lum / histMax) * (BINS - 1)));
-function histogram(n: number): number[] {
-  const counts = new Array<number>(BINS).fill(0);
-  for (let s = 0; s < n; s++) counts[binOf(paths[s]!.lum)]!++;
-  return counts;
-}
-
 // --- Playback --------------------------------------------------------------
 const nAt = (t: number): number => {
   const slow = Math.floor((t - START) / SLOW_STEP) + 1;
@@ -271,7 +242,6 @@ const nAt = (t: number): number => {
 };
 const mosaicPixels = new Uint8ClampedArray(MAX_N * 4);
 const pixelPixels = new Uint8ClampedArray(4);
-const matrix = new THREE.Matrix4();
 let shownN = -1;
 
 stage.frame((t) => {
@@ -296,20 +266,6 @@ stage.frame((t) => {
   pixelPixels[3] = 255;
   pixel.update(pixelPixels);
 
-  // The histogram, as shares of the paths so far, and the average marked.
-  const counts = histogram(n);
-  counts.forEach((count, b) => {
-    const h = n ? (count / n / histTop) * HIST.height : 0;
-    matrix.makeScale(1, Math.max(1e-4, h), 1).setPosition(HIST.left + (b + 0.5) * binWidth, HIST.bottom, 0);
-    histBars.setMatrixAt(b, matrix);
-  });
-  histBars.instanceMatrix.needsUpdate = true;
-  meanMark.visible = n > 0;
-  if (n) {
-    const meanLum = paths.slice(0, n).reduce((a, p) => a + p.lum, 0) / n;
-    const x = HIST.left + Math.min(1, meanLum / histMax) * (BINS - 1) * binWidth + binWidth / 2;
-    setPolyline(meanMark, [[x, HIST.bottom - 0.03, 0], [x, HIST.bottom + HIST.height * 1.08, 0]]);
-  }
   setText(caption, n === 0 ? '' : n === 1 ? '1 path' : `${n} paths`);
 });
 
