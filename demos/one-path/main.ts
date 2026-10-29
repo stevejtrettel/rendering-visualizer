@@ -32,6 +32,12 @@
  *
  * Before the light comes back, the path is drawn dark: it is a route, not
  * yet carrying anything. It fills with colour from the lamp end.
+ *
+ * Click a cell of the film inset to throw a path from THAT pixel: its own
+ * samples are traced until some reach the lamp, and of the first few the
+ * brightest with at least two bounces is shown (the brightest outright is
+ * almost always a one-bounce hop, and the slide is about bouncing). If none of PIXEL_SAMPLES do, its first sample is shown
+ * as it is, dark, and the pixel stays black: most paths find nothing.
  */
 
 import { createStage, createUI, C } from '@';
@@ -49,6 +55,7 @@ import { FilmPanel } from '@/viz/film-panel';
 import { polyline, setPolyline } from '@/viz/lines';
 import { srgbEncode } from '@/render/film';
 import { label, setText } from '@/viz/text';
+import { ASPECT } from '@/viz/stage';
 import * as THREE from 'three';
 
 // --- Figure spec -----------------------------------------------------------
@@ -59,6 +66,8 @@ const MAX_BOUNCES = 8;
 const SEARCH_SAMPLES = 400; // per pixel
 const MAX_CANDIDATES = 24; // shown, after ranking
 const SEARCH_POOL = 240; // gathered before ranking
+const PIXEL_SAMPLES = 4000; // tried for a clicked pixel
+const PIXEL_POOL = 12; // lit paths gathered for a clicked pixel before choosing
 /** The path before light travels it: a route, nothing carried yet. */
 const DARK = 0x2a2f35;
 const COLORED = new Set(['left', 'right']); // the red and green walls
@@ -123,34 +132,71 @@ stage.hud.add(insetCell);
 // --- Controls --------------------------------------------------------------
 const params = { grid: 8, path: 0 };
 ui.params.add(params, 'grid', 2, 32, 1).name('film resolution').onChange(search);
-const pathControl = ui.params.add(params, 'path', 0, MAX_CANDIDATES - 1, 1).onChange(build);
+const pathControl = ui.params.add(params, 'path', 0, MAX_CANDIDATES - 1, 1).onChange(() => {
+  chosen = null;
+  build();
+});
 
 // --- The path --------------------------------------------------------------
 interface Candidate {
   x: number;
   y: number;
-  vertices: VertexRecord[]; // camera .. the lamp hit, inclusive
+  vertices: VertexRecord[]; // camera .. the lamp hit inclusive, or the whole walk if it found none
 }
 let candidates: Candidate[] = [];
+/** A path thrown from a clicked pixel; overrides `path` until that is moved. */
+let chosen: Candidate | null = null;
+
+const integrator = new UnidirectionalPT({ maxBounces: MAX_BOUNCES, rrStartDepth: 99, sampleNEE: false });
+const lampHit = (vs: VertexRecord[]) => vs.findIndex((v, i) => i > 0 && v.primitiveName === 'light');
+// Brightest result first: the pixel value is Le * beta_n, so rank by the
+// luminance of beta_n weighted by the lamp's colour.
+const brightness = (c: Candidate) => {
+  const b = c.vertices[c.vertices.length - 1]!.beta;
+  return 0.2126 * Le.r * b[0] + 0.7152 * Le.g * b[1] + 0.0722 * Le.b * b[2];
+};
+
+/** One real plain-PT sample of pixel (x, y). */
+function sample(scene: ReturnType<typeof buildScene>, sampler: IndependentSampler, x: number, y: number, s: number): VertexRecord[] {
+  const key = pixelSeedKey(x, y, s);
+  sampler.startPixelSample(key);
+  const recorder = new ArrayRecorder();
+  recorder.beginPath(key);
+  integrator.sampleContributions([x, y], sampler, scene, recorder);
+  recorder.endPath();
+  return recorder.records[0]!.vertices;
+}
+
+/** Throw paths from one pixel until some reach the lamp (see header). */
+function pathFromPixel(x: number, y: number): Candidate {
+  const res = params.grid;
+  const scene = buildScene(desc, res, res);
+  const sampler = new IndependentSampler(0);
+  let first: Candidate | null = null;
+  const lit: Candidate[] = [];
+  for (let s = 0; s < PIXEL_SAMPLES && lit.length < PIXEL_POOL; s++) {
+    const vs = sample(scene, sampler, x, y, s);
+    first ??= { x, y, vertices: vs };
+    const hit = lampHit(vs);
+    if (hit > 0) lit.push({ x, y, vertices: vs.slice(0, hit + 1) });
+  }
+  if (!lit.length) return first!;
+  const bouncy = lit.filter((c) => c.vertices.length - 2 >= 2);
+  return (bouncy.length ? bouncy : lit).sort((a, b) => brightness(b) - brightness(a))[0]!;
+}
 
 /** Real plain-PT samples, pixel by pixel, keeping the ones worth showing. */
 function search(): void {
   const res = params.grid;
   const scene = buildScene(desc, res, res);
-  const integrator = new UnidirectionalPT({ maxBounces: MAX_BOUNCES, rrStartDepth: 99, sampleNEE: false });
   const sampler = new IndependentSampler(0);
   candidates = [];
+  chosen = null;
   for (let s = 0; s < SEARCH_SAMPLES && candidates.length < SEARCH_POOL; s++) {
     for (let y = 0; y < res && candidates.length < SEARCH_POOL; y++) {
       for (let x = 0; x < res && candidates.length < SEARCH_POOL; x++) {
-        const key = pixelSeedKey(x, y, s);
-        sampler.startPixelSample(key);
-        const recorder = new ArrayRecorder();
-        recorder.beginPath(key);
-        integrator.sampleContributions([x, y], sampler, scene, recorder);
-        recorder.endPath();
-        const vs = recorder.records[0]!.vertices;
-        const hit = vs.findIndex((v, i) => i > 0 && v.primitiveName === 'light');
+        const vs = sample(scene, sampler, x, y, s);
+        const hit = lampHit(vs);
         // vertices[hit] is on the lamp; bounces before it = hit - 1.
         if (hit < 3 || hit > 6) continue;
         if (!vs.slice(1, hit).some((v) => COLORED.has(v.primitiveName ?? ''))) continue;
@@ -158,12 +204,6 @@ function search(): void {
       }
     }
   }
-  // Brightest result first: the pixel value is Le * beta_n, so rank by the
-  // luminance of beta_n weighted by the lamp's colour.
-  const brightness = (c: Candidate) => {
-    const b = c.vertices[c.vertices.length - 1]!.beta;
-    return 0.2126 * Le.r * b[0] + 0.7152 * Le.g * b[1] + 0.0722 * Le.b * b[2];
-  };
   candidates.sort((a, b) => brightness(b) - brightness(a));
   candidates = candidates.slice(0, MAX_CANDIDATES);
   pathControl.max(Math.max(0, candidates.length - 1));
@@ -174,6 +214,9 @@ function search(): void {
 
 // --- The figure ------------------------------------------------------------
 interface Built {
+  cand: Candidate;
+  /** Did this path reach the lamp? An unlit one goes out and stops. */
+  lit: boolean;
   pts: THREE.Vector3[];
   /** Colour on segment k (from vertex k-1 to k), k = 1..n, relative to the lamp. */
   segColor: THREE.Color[];
@@ -206,16 +249,18 @@ function build(): void {
   disposeBuilt();
   plane?.dispose();
   plane = null;
-  const cand = candidates[params.path];
+  const cand = chosen ?? candidates[params.path];
+  insetLit = null;
   if (!cand) {
     setText(caption, 'no path found at this resolution');
     return;
   }
   const res = params.grid;
   const vs = cand.vertices;
-  const n = vs.length - 1; // index of the lamp vertex
+  const n = vs.length - 1; // the lamp vertex, if the path is lit
+  const lit = vs[n]!.primitiveName === 'light';
   const pts = vs.map((v) => new THREE.Vector3(...v.p));
-  const betaN = vs[n]!.beta;
+  const betaN = lit ? vs[n]!.beta : ([0, 0, 0] as const);
 
   // Light leaving the lamp, then scaled at each bounce on the way back.
   const segColor: THREE.Color[] = [new THREE.Color()]; // index 0 unused
@@ -260,15 +305,19 @@ function build(): void {
     t += GROW + (k < n ? AT_VERTEX : 0);
   }
   const hitAt = t;
-  t += AT_LIGHT;
   const backStart: number[] = [];
-  for (let k = n; k >= 1; k--) {
-    backStart[k] = t;
-    t += BACK + (k > 1 ? TINT : 0);
+  if (lit) {
+    t += AT_LIGHT;
+    for (let k = n; k >= 1; k--) {
+      backStart[k] = t;
+      t += BACK + (k > 1 ? TINT : 0);
+    }
+  } else {
+    for (let k = 1; k <= n; k++) backStart[k] = Infinity; // nothing comes back
   }
   const pixelAt = t;
   const end = pixelAt + AT_PIXEL + HOLD;
-  built = { pts, segColor, out, back, dots, outStart, hitAt, backStart, pixelAt, end };
+  built = { cand, lit, pts, segColor, out, back, dots, outStart, hitAt, backStart, pixelAt, end };
 
   // The film: blank, except this pixel once the light arrives.
   const value = segColor[1]!;
@@ -302,7 +351,7 @@ let insetLit: boolean | null = null;
 function paintInset(lit: boolean): void {
   if (!inset || !insetPixels || !built || lit === insetLit) return;
   insetLit = lit;
-  const cand = candidates[params.path]!;
+  const { cand } = built;
   const res = params.grid;
   for (let i = 0; i < res * res; i++) {
     const o = i * 4;
@@ -334,7 +383,7 @@ stage.frame((t) => {
   }
 
   // The hit: the lamp's outline swells for a moment.
-  const pulse = t >= hitAt && t < hitAt + AT_LIGHT ? Math.sin((Math.PI * (t - hitAt)) / AT_LIGHT) : 0;
+  const pulse = built.lit && t >= hitAt && t < hitAt + AT_LIGHT ? Math.sin((Math.PI * (t - hitAt)) / AT_LIGHT) : 0;
   lampOutline.material.linewidth = 4 + 8 * pulse;
 
   // Returning: segment k fills with its colour from vertex k back to k-1,
@@ -357,15 +406,51 @@ stage.frame((t) => {
     }
   }
   // The lamp-end dot glows in the lamp's own colour once it is hit.
-  (dots[n - 1]!.material as THREE.MeshBasicMaterial).color.copy(t >= hitAt ? built.segColor[n]! : new THREE.Color(DARK));
+  (dots[n - 1]!.material as THREE.MeshBasicMaterial).color.copy(
+    built.lit && t >= hitAt ? built.segColor[n]! : new THREE.Color(DARK),
+  );
 
   paintInset(t >= pixelAt + AT_PIXEL * 0.5);
 
   // A counter, not narration: the slide and the speaker carry the story.
   let k = 1;
   while (k < n && t >= outStart[k + 1]!) k++;
-  const text = t < hitAt ? (k > 1 ? `bounce ${k - 1}` : '') : `${n - 1} bounces`;
+  const bounces = (m: number) => `${m} bounce${m === 1 ? '' : 's'}`;
+  const text = t < hitAt
+    ? (k > 1 ? `bounce ${k - 1}` : '')
+    : built.lit ? bounces(n - 1) : `${bounces(n)} · no light`;
   setText(caption, text);
+});
+
+// --- Clicking the film -----------------------------------------------------
+// The HUD spans x in [-ASPECT, ASPECT], y in [-1, 1] over the letterboxed
+// canvas. A click (not a drag, which orbits) on a cell of the inset throws a
+// path from that pixel.
+const canvas = stage.renderer.domElement;
+function cellUnder(e: PointerEvent): [number, number] | null {
+  const r = canvas.getBoundingClientRect();
+  const hx = (((e.clientX - r.left) / r.width) * 2 - 1) * ASPECT;
+  const hy = -(((e.clientY - r.top) / r.height) * 2 - 1);
+  const res = params.grid;
+  const h = INSET.height;
+  const left = INSET.center[0] - h / 2;
+  const top = INSET.center[1] + h / 2;
+  const x = Math.floor(((hx - left) / h) * res);
+  const y = Math.floor(((top - hy) / h) * res);
+  return x >= 0 && x < res && y >= 0 && y < res ? [x, y] : null;
+}
+let downAt: [number, number] | null = null;
+canvas.addEventListener('pointerdown', (e) => (downAt = [e.clientX, e.clientY]));
+canvas.addEventListener('pointerup', (e) => {
+  const moved = downAt ? Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) : Infinity;
+  downAt = null;
+  const cell = moved < 5 ? cellUnder(e) : null;
+  if (!cell) return;
+  chosen = pathFromPixel(cell[0], cell[1]);
+  build();
+});
+canvas.addEventListener('pointermove', (e) => {
+  canvas.style.cursor = cellUnder(e) ? 'pointer' : '';
 });
 
 stage.start();
