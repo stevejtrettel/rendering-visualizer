@@ -52,9 +52,11 @@ export interface FilmTexture {
 export function createFilmTexture(width: number, height: number): FilmTexture {
   const pixels = new Uint8ClampedArray(width * height * 4);
   const texture = new THREE.DataTexture(pixels, width, height, THREE.RGBAFormat);
-  // The film arrives already sRGB-encoded from Film.develop(), so the
-  // texture must NOT be colour-converted a second time on sampling.
-  texture.colorSpace = THREE.NoColorSpace;
+  // The film arrives already sRGB-encoded from Film.develop(). Mark it so:
+  // three decodes it on sampling and the renderer's sRGB output encodes it
+  // once. NoColorSpace (what this was) skips the decode but not the output
+  // encode, so every film was gamma-encoded twice and came out washed out.
+  texture.colorSpace = THREE.SRGBColorSpace;
   // Crisp pixels: at low sample counts the noise IS the subject, and
   // bilinear smoothing quietly denoises the very thing being shown.
   texture.magFilter = THREE.NearestFilter;

@@ -120,6 +120,9 @@ export class ImagePlaneElement implements TimelineElement {
     const { res } = cfg;
     this.rgba = new Uint8Array(res * res * 4);
     this.texture = new THREE.DataTexture(this.rgba, res, res, THREE.RGBAFormat);
+    // The bytes are sRGB-encoded (srgbEncode below); say so, or the
+    // renderer's output encoding applies a second time (see film-panel.ts).
+    this.texture.colorSpace = THREE.SRGBColorSpace;
     this.texture.magFilter = THREE.NearestFilter; // crisp cells
     this.texture.minFilter = THREE.NearestFilter;
 
