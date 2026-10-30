@@ -1,13 +1,19 @@
 /**
- * SHOWS: a camera whose pixel gathers many spectra and keeps their average.
- * The pinhole camera of pinhole-camera with a lens where the pinhole was: one
- * pixel on the sensor, and through points all over the lens, one ray each
- * from that pixel out into the room. Each ray comes back with the spectrum of
- * the light along it; the graph at the left draws each as it arrives, and the
- * pixel's spectrum, drawn bold, is their running average. The pixel takes the
- * colour of that average. Steve, 2026-10-29: teach that a camera's
- * spectrum-gathering step can be an integral, an accumulation of other spectra,
- * across a lens; nothing about focal planes.
+ * SHOWS: a camera whose pixel gathers the light of many rays and keeps their
+ * average. The pinhole camera of pinhole-camera with a lens where the pinhole
+ * was: one pixel on the sensor, and through points all over the lens, one ray
+ * each from that pixel out into the room, drawn in the colour of the light it
+ * brings back. The pixel, large at the left, takes the colour of their running
+ * average. Steve, 2026-10-29: teach that a camera's gathering step can be an
+ * integral, an accumulation, across a lens; nothing about focal planes. The
+ * slides before have a pixel turn a spectrum into a colour; this one is only
+ * about which light reaches the pixel, so the spectra are not drawn (each ray
+ * carries one, as the audience knows).
+ *
+ * ?gather=spectra: the first version, with a graph at the left drawing each
+ * ray's spectrum as it arrives and the pixel's, their average, bold. The
+ * colour is the same either way: turning a spectrum into a colour is linear,
+ * so the colour of the average spectrum is the average of the colours.
  *
  * What is computed, honestly: each ray's spectrum is the light arriving along
  * that exact ray in a spectral version of the short box (real light transport,
@@ -46,6 +52,8 @@ const RAYS = [1.5, 13]; // first ray to last
 const HOLD = 3;
 /** The graph, HUD units (x in [-ASPECT, ASPECT], y in [-1, 1]). */
 const G = { x0: -1.62, x1: -0.42, y0: -0.42, y1: 0.42 };
+/** ?gather=spectra: draw the spectra the rays bring back, and their average, as they accumulate. */
+const GATHER_SPECTRA = new URLSearchParams(location.search).get('gather') === 'spectra';
 
 // --- Stage -----------------------------------------------------------------
 const stage = createStage({ position: [0, 2.8, 15.5], target: [0, 1.5, 1.0], fov: 42 });
@@ -129,15 +137,19 @@ const rayLines = Array.from({ length: K }, (_, k) => {
   return l;
 });
 
-// The graph: each ray's spectrum, thin, in its colour; the pixel's, their average, bold.
+// The graph (?gather=spectra only): each ray's spectrum, thin, in its colour;
+// the pixel's, their average, bold.
+const graph = new THREE.Group();
+graph.visible = GATHER_SPECTRA;
+stage.hud.add(graph);
 const SMAX = Math.max(...spectra.flat()) * 1.05;
 const gx = (nm: number) => G.x0 + ((nm - NM[0]!) / (NM[NM.length - 1]! - NM[0]!)) * (G.x1 - G.x0);
 const gy = (v: number) => G.y0 + (v / SMAX) * (G.y1 - G.y0);
 const curvePts = (s: ArrayLike<number>) => NM.map((nm, i) => [gx(nm), gy(s[i]!), 0] as [number, number, number]);
-stage.hud.add(polyline([[G.x0, G.y0, 0], [G.x1, G.y0, 0]], { color: C.slateDeep, width: 2 }));
+graph.add(polyline([[G.x0, G.y0, 0], [G.x1, G.y0, 0]], { color: C.slateDeep, width: 2 }));
 for (const nm of [400, 500, 600, 700]) {
-  stage.hud.add(polyline([[gx(nm), G.y0 - 0.025, 0], [gx(nm), G.y0, 0]], { color: C.slateDeep, width: 2 }));
-  stage.hud.add(label(String(nm), { size: 0.045, color: C.slate, anchorX: 'center', anchorY: 'top', position: [gx(nm), G.y0 - 0.08, 0] }));
+  graph.add(polyline([[gx(nm), G.y0 - 0.025, 0], [gx(nm), G.y0, 0]], { color: C.slateDeep, width: 2 }));
+  graph.add(label(String(nm), { size: 0.045, color: C.slate, anchorX: 'center', anchorY: 'top', position: [gx(nm), G.y0 - 0.08, 0] }));
 }
 for (let i = 0; i < 120; i++) {
   const nm = 400 + (300 * (i + 0.5)) / 120;
@@ -145,21 +157,26 @@ for (let i = 0; i < 120; i++) {
   const strip = new THREE.Mesh(new THREE.PlaneGeometry(((G.x1 - G.x0) / 120) * 1.03, 0.025), new THREE.MeshBasicMaterial({ toneMapped: false }));
   strip.material.color.setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
   strip.position.set(gx(nm), G.y0 - 0.04, 0);
-  stage.hud.add(strip);
+  graph.add(strip);
 }
-stage.hud.add(label('Spectrum', { size: 0.055, color: C.ash, anchorX: 'center', anchorY: 'top', position: [(G.x0 + G.x1) / 2, G.y0 - 0.15, 0] }));
+graph.add(label('Spectrum', { size: 0.055, color: C.ash, anchorX: 'center', anchorY: 'top', position: [(G.x0 + G.x1) / 2, G.y0 - 0.15, 0] }));
 const thin = spectra.map((s, k) => {
   const l = polyline(curvePts(s), { color: rayColours[k]!.getHex(), width: 1.5, opacity: 0.6 });
   l.visible = false;
-  stage.hud.add(l);
+  graph.add(l);
   return l;
 });
 const mean = polyline(curvePts(new Array(NM.length).fill(0)), { color: C.bone, width: 4.5 });
 mean.position.z = 0.01;
-stage.hud.add(mean);
+graph.add(mean);
 const swatchMat = new THREE.MeshBasicMaterial({ color: 0x121212, toneMapped: false });
+// The pixel, large: beside the graph when it is drawn, on its own otherwise.
 const swatch = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.2), swatchMat);
-swatch.position.set(G.x1 - 0.1, G.y1 + 0.2, 0);
+if (GATHER_SPECTRA) swatch.position.set(G.x1 - 0.1, G.y1 + 0.2, 0);
+else {
+  swatch.scale.setScalar(2.4);
+  swatch.position.set(-1.0, -0.05, 0);
+}
 stage.hud.add(swatch);
 
 // --- Playback ----------------------------------------------------------------------------
