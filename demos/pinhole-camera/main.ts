@@ -22,6 +22,8 @@
  * drawn translucent so we can see in; the camera should see a wall) and the
  * camera's own drawing is hidden: the camera is not in the scene.
  *
+ * Drag to turn the 3D view round (orbit controls), as on the Part I slides.
+ *
  * The scan starts one ray at a time and speeds up (pixels done grow as the
  * cube of the time), with the latest rays trailing behind it; the rays clear
  * once the image is done, and the figure holds it.
@@ -35,7 +37,7 @@ import { styleShortBox } from '@/viz/short-box';
 import { imagePlaneFrame } from '@/viz/image-plane';
 import { FilmPanel } from '@/viz/film-panel';
 import { SCREEN, BLANK } from '@/viz/screen-layout';
-import { polyline, segments, setPolyline, setSegments } from '@/viz/lines';
+import { polyline, setPolyline } from '@/viz/lines';
 import * as THREE from 'three';
 
 // --- Figure spec -----------------------------------------------------------
@@ -52,7 +54,7 @@ const HOLD = 3;
 const TRAIL = 40; // rays drawn behind the scan
 
 // --- Stage -----------------------------------------------------------------
-const stage = createStage({ position: [0, 2.8, 15.5], target: [0, 1.5, 1.0], fov: 42, controls: false });
+const stage = createStage({ position: [0, 2.8, 15.5], target: [0, 1.5, 1.0], fov: 42 });
 const ui = createUI(stage);
 
 const desc = SCENES[SCENE];
@@ -62,7 +64,8 @@ styleShortBox(stage.renderer, stage.scene, sceneGroup, desc);
 const view = vizViewFor(SCENE);
 const viewTarget = new THREE.Vector3(...view.target);
 stage.camera.position.set(...view.eye).sub(viewTarget).multiplyScalar(PULL_BACK).add(viewTarget);
-stage.camera.lookAt(viewTarget);
+stage.controls?.target.copy(viewTarget);
+stage.controls?.update();
 stage.shiftView(SHIFT);
 
 // --- The camera: pinhole, box, sensor ----------------------------------------------
@@ -88,7 +91,7 @@ cameraGroup.add(pinhole);
 }
 
 // --- The image ------------------------------------------------------------------------
-const params = { grid: 45 };
+const params = { grid: 24 };
 let res = params.grid;
 /** The photograph, sRGB bytes, rows bottom to top (as read back; also the sensor's texture order). */
 let shot = new Uint8ClampedArray(0);
@@ -160,27 +163,10 @@ cameraGroup.add(sensor);
 const sensorBytes = () => new Uint8Array(res * res * 4);
 let sensorData = sensorBytes();
 
-// The screen, square-on at the left: the image the right way up.
+// The screen, square-on at the left: the image the right way up, without pixel
+// lines (Steve: the pixels are big enough to read as pixels).
 let screen: FilmPanel | null = null;
 let screenPixels = new Uint8ClampedArray(0);
-const gridLines = segments({ width: 1.5, opacity: 0.999 });
-stage.hud.add(gridLines);
-function drawGrid(): void {
-  const h = SCREEN.height;
-  const [cx, cy] = SCREEN.center;
-  const pos: number[] = [];
-  for (let i = 0; i <= res; i++) {
-    const f = -h / 2 + (h * i) / res;
-    pos.push(cx + f, cy - h / 2, 0.02, cx + f, cy + h / 2, 0.02);
-    pos.push(cx - h / 2, cy + f, 0.02, cx + h / 2, cy + f, 0.02);
-  }
-  const col = new Float32Array(pos.length);
-  const grey = new THREE.Color(C.slate);
-  for (let i = 0; i < col.length; i += 3) grey.toArray(col, i);
-  setSegments(gridLines, new Float32Array(pos), col);
-  gridLines.material.linewidth = res > 32 ? 1 : 1.5;
-}
-
 const rays = Array.from({ length: TRAIL }, () => {
   const l = polyline([new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()], { color: C.bone, width: 2, opacity: 0.9 });
   l.visible = false;
@@ -202,7 +188,6 @@ function rebuild(): void {
   sensorTex.magFilter = sensorTex.minFilter = THREE.NearestFilter;
   (sensor.material as THREE.MeshBasicMaterial).map = sensorTex;
   (sensor.material as THREE.MeshBasicMaterial).needsUpdate = true;
-  drawGrid();
   shownCount = -1;
 }
 ui.params.add(params, 'grid', 2, 64, 1).name('film resolution').onChange(rebuild);
