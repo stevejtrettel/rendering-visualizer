@@ -105,6 +105,12 @@ export const INFO: Record<string, DemoInfo> = {
       'The two things a picture is made from: the scene, a 3D model, and the screen, a blank grid of pixels on the camera frustum. The set-up of level-zero, before any ray is traced.',
     section: 'Act 1 — one path',
   },
+  'pinhole-camera': {
+    title: 'A pinhole camera',
+    blurb:
+      'The short box, shaded as in Part I, photographed by a pinhole camera: each pixel takes the colour along the one ray from the sensor through the pinhole. The image lands on the sensor turned half round; the screen shows it upright.',
+    section: 'Act 1 — one path',
+  },
   'move-camera': {
     title: 'Move the camera, start over',
     blurb:
