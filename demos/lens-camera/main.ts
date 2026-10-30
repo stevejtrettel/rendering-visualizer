@@ -3,8 +3,9 @@
  * average. The pinhole camera of pinhole-camera with a lens where the pinhole
  * was: one pixel on the sensor, and through points all over the lens, one ray
  * each from that pixel out into the room, drawn in the colour of the light it
- * brings back. The pixel, large at the left, takes the colour of their running
- * average. Steve, 2026-10-29: teach that a camera's gathering step can be an
+ * brings back. Above the pixel, large at the left, a small square per ray in
+ * that colour, filling in as they come (Steve: see all the colour inputs);
+ * the pixel takes the colour of their running average. Steve, 2026-10-29: teach that a camera's gathering step can be an
  * integral, an accumulation, across a lens; nothing about focal planes. The
  * slides before have a pixel turn a spectrum into a colour; this one is only
  * about which light reaches the pixel, so the spectra are not drawn (each ray
@@ -178,6 +179,18 @@ else {
   swatch.position.set(-1.0, -0.05, 0);
 }
 stage.hud.add(swatch);
+// Above the pixel (default mode), the inputs: one small square per ray, in the
+// colour it brought back, filling in as the rays come. Rows of COLS, as wide
+// as the pixel.
+const COLS = 10;
+const TILE = 0.48 / COLS;
+const inputs = rayColours.map((c, k) => {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(TILE * 0.82, TILE * 0.82), new THREE.MeshBasicMaterial({ color: c, toneMapped: false }));
+  m.position.set(-1.0 - 0.24 + TILE * ((k % COLS) + 0.5), 0.19 + 0.06 + TILE * (Math.floor(k / COLS) + 0.5), 0);
+  m.visible = false;
+  stage.hud.add(m);
+  return m;
+});
 
 // --- Playback ----------------------------------------------------------------------------
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
@@ -191,6 +204,7 @@ stage.frame((t) => {
     const on = k < n;
     const newest = k === n - 1;
     rayLines[k]!.visible = thin[k]!.visible = on;
+    inputs[k]!.visible = on && !GATHER_SPECTRA;
     (rayLines[k]!.material as THREE.Material & { opacity: number }).opacity = newest && n < K ? 1 : 0.45;
     (thin[k]!.material as THREE.Material & { opacity: number }).opacity = newest && n < K ? 1 : 0.4;
   }
