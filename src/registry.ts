@@ -111,6 +111,12 @@ export const INFO: Record<string, DemoInfo> = {
       'The short box, shaded as in Part I, photographed by a pinhole camera: each pixel takes the colour along the one ray from the sensor through the pinhole. The image lands on the sensor turned half round; the screen shows it upright.',
     section: 'Act 1 — one path',
   },
+  'lens-camera': {
+    title: 'A lens camera',
+    blurb:
+      'One pixel behind a lens: through points all over the lens, one ray each out into the short box, each bringing back the spectrum along it (a spectral bake). The pixel keeps their running average, and takes its colour.',
+    section: 'Act 1 — one path',
+  },
   'move-camera': {
     title: 'Move the camera, start over',
     blurb:
