@@ -13,7 +13,7 @@
 // the scene's RGB albedos, and a 5200 K blackbody lamp (the lamp of the room
 // demos and pixel-image) at the scene lamp's brightness.
 //
-// Run: node scripts/bake-spectral-short.mjs <out.json>
+// Run: node scripts/bake-spectral-short.mjs <out.json> [res, default 16]
 import { SCENES } from '../src/scenes/registry';
 import { buildScene, type SceneDescription } from '../src/core/scene/scene';
 import { NEEPathTracer } from '../src/core/integrators/pt-nee';
@@ -22,7 +22,6 @@ import { Film } from '../src/render/film';
 import { renderPass } from '../src/render/driver';
 import { writeFileSync } from 'node:fs';
 
-const RES = 16;
 const SPP = 1024;
 /** The wavelengths: 400 to 700 nm in 33 steps (every third of pixel-image's 97). */
 const NM = Array.from({ length: 33 }, (_, i) => 400 + (300 * i) / 32);
@@ -41,7 +40,7 @@ const REFLECT: Record<string, (nm: number) => number> = {
   ballBlue: (nm) => 0.33 + 0.5 / (1 + Math.exp((nm - 520) / 30)), // the conductor's f0
 };
 
-export async function main(out: string): Promise<void> {
+export async function main(out: string, RES = 16): Promise<void> {
   const desc = SCENES['cornell-short'];
   const lamp = desc.primitives.find((p) => p.emission)!;
   const L = lamp.emission!.radiance[1]; // the lamp's brightness, from its green channel
