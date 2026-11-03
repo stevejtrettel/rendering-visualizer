@@ -93,7 +93,7 @@
  * and faster. The finished screen is light's image exactly (the same
  * per-sample computation). The 3D scene keeps its own lit look throughout.
  *
- * albedo, brightness, shadow, reflection: Whitted's fake 1980 tracer, built
+ * albedo, brightness, shadow, phong, reflection, refraction: Whitted's fake 1980 tracer, built
  * as passes (Steve, 2026-11-03: "each time we scan the image and produce our
  * data ... each time we take the existing images and we combine them to see
  * how it improved; at the end we have like 4 images that we stack together").
@@ -115,14 +115,29 @@
  *               (Steve, 2026-11-03), or with it: the run of slides is
  *               `&passes=` (default albedo,brightness,shadow,reflection).
  *
+ *   refraction  what the ray bent through the glass sees; black      t
+ *               off the glass (`&glass`, below)
+ *
  * combined, after each:  c;  c (A + (1 - A) b);  c (A + (1 - A) b v);  and on
- * the mirror c r instead, A = AMBIENT (Steve: we do want an ambient term).
- * The blue ball is a perfect mirror tinted its own colour (Steve), in this
- * tracer only; until the reflection pass it is shaded like any other
- * surface. What the reflected ray sees is the whole recipe again where it
- * lands, c (A + (1 - A) b v) there: the tracer calling itself. One bounce is
- * exact here (nothing else is shiny); a reflected ray that leaves through
- * the open front sees black. The light is a point at the lamp's centre, so
+ * the mirror c r instead, on the glass t, A = AMBIENT (Steve: we do want an
+ * ambient term). The blue ball is a perfect mirror tinted its own colour
+ * (Steve), in this tracer only; until the reflection pass it is shaded like
+ * any other surface. `&glass` swaps it for a clear glass ball, index 1.5
+ * (Steve, 2026-11-03: after we see how a mirror works, we see how glass
+ * works), shaded as a plain light grey ball until the refraction pass.
+ *
+ * Whitted's recursion: what the reflected or bent ray sees is the whole
+ * recipe again where it lands, and if that is the mirror or the glass, again
+ * (up to MAX_DEPTH, then black): the tracer calling itself. The glass bends
+ * the ray by Snell's law going in and coming out; past the critical angle
+ * it reflects inside instead. With both passes in a run, the glass mixes in
+ * Fresnel's share of the reflected ray. Shadow rays stop at the glass as at
+ * anything else (Whitted's, and its known fault: real glass focuses light,
+ * a caustic). Bounced rays see the box with its front wall put back (a white
+ * wall, as in the full Cornell box), so the mirror and the glass show the
+ * room all round, not black out the open front; the camera's own rays still
+ * come in through the open front, and the wall is not drawn in 3D. The
+ * bounced path is drawn in blue. The light is a point at the lamp's centre, so
  * shadows are hard; the lamp itself is not shaded. Everything per sample
  * (SPP), as the other slides. Film resolution goes to 256 on these slides;
  * changing it recomputes every pass and jumps to the finished slide, which
@@ -143,6 +158,7 @@ import { IndependentSampler } from '@/core/sampler/independent';
 import { srgbEncode } from '@/render/film';
 import { occlusionPoint, visible } from '@/core/geometry/visibility';
 import { offsetRayOrigin } from '@/core/geometry/offset';
+import { frDielectric } from '@/core/materials/fresnel';
 import { Vec3 } from '@/core/math/vec3';
 import { Ray } from '@/core/math/ray';
 import { pixelSeedKey } from '@/core/sampler/sampler';
@@ -159,7 +175,7 @@ import * as THREE from 'three';
 // --- Figure spec -----------------------------------------------------------
 const SCENE: SceneName = 'cornell-short';
 const SPP = 8; // antialiasing only
-const ALL_PASSES = ['albedo', 'brightness', 'shadow', 'phong', 'reflection'] as const;
+const ALL_PASSES = ['albedo', 'brightness', 'shadow', 'phong', 'reflection', 'refraction'] as const;
 type Pass = (typeof ALL_PASSES)[number];
 /**
  * The passes in this run of slides, in order: `&passes=` in the URL, comma
@@ -178,7 +194,17 @@ const SHADE: Shade = (() => {
 /** Which pass this slide builds (0..3), or -1 on the other slides. */
 const PASS_INDEX = (PASSES as readonly string[]).indexOf(SHADE);
 const IS_PASS = PASS_INDEX >= 0;
-const MIRROR = 'ballBlue'; // the passes' perfect mirror, tinted its own colour
+/**
+ * `&glass`: the blue ball swapped out for a glass one (Steve, 2026-11-03:
+ * after we see how a mirror works, we see how glass works). It keeps the
+ * name ballBlue, so every slide's list of pieces still finds it.
+ */
+const GLASS_SWAP = new URLSearchParams(location.search).has('glass');
+const MIRROR: string | null = GLASS_SWAP ? null : 'ballBlue'; // the passes' perfect mirror, tinted its own colour
+const GLASS: string | null = GLASS_SWAP ? 'ballBlue' : null;
+const IOR = 1.5;
+/** How many times a ray may bounce off the mirror or pass through the glass before it gives up (black). */
+const MAX_DEPTH = 8;
 const AMBIENT = 0.2;
 /** Projected one at a time, in this order: back to front, a true depth order for this scene. */
 const PIECES = ['back', 'left', 'right', 'floor', 'ceiling', 'light', 'ball', 'ballBlue'];
@@ -232,8 +258,8 @@ const HOLD = 3;
 // The pass slides. Each slow ray: out to the scene (P_OUT), then what this
 // pass measures there (P_PROBE: the elbow, the shadow ray, the reflected
 // ray), then its pixel is filled (P_FILL).
-const P_STEP: Record<Pass, number> = { albedo: 2.0, brightness: 2.4, shadow: 3.0, phong: 2.8, reflection: 3.0 };
-const P_FILL: Record<Pass, number> = { albedo: 1.2, brightness: 1.6, shadow: 2.2, phong: 2.0, reflection: 2.2 };
+const P_STEP: Record<Pass, number> = { albedo: 2.0, brightness: 2.4, shadow: 3.0, phong: 2.8, reflection: 3.0, refraction: 3.2 };
+const P_FILL: Record<Pass, number> = { albedo: 1.2, brightness: 1.6, shadow: 2.2, phong: 2.0, reflection: 2.2, refraction: 2.4 };
 const P_OUT = 0.8;
 const P_PROBE = [1.0, 1.7];
 const P_CLEAR = [0.3, 0.9]; // the last slide's combined image leaves the screen
@@ -255,14 +281,32 @@ const stage = createStage({ position: [0, 2.8, 15.5], target: [0, 1.5, 1.0], fov
 const ui = createUI(stage);
 stage.renderer.localClippingEnabled = true;
 
-const desc = SCENES[SCENE];
+const desc: typeof SCENES[SceneName] = GLASS_SWAP
+  ? {
+      ...SCENES[SCENE],
+      primitives: SCENES[SCENE].primitives.map((p) => (p.name === 'ballBlue' ? { ...p, material: { kind: 'dielectric' as const, ior: IOR } } : p)),
+    }
+  : SCENES[SCENE];
+/**
+ * The box with its front wall put back, for the rays that bounce: a reflected
+ * or refracted ray that heads out the open front sees a white wall there, as
+ * in the full Cornell box, instead of black. The camera's own rays use the
+ * open box (they come in through the front). Not drawn in 3D.
+ */
+const descClosed: typeof SCENES[SceneName] = {
+  ...desc,
+  primitives: [
+    ...desc.primitives,
+    { name: 'front', shape: { kind: 'quad', q: [-2, 0, 2], e1: [0, 4, 0], e2: [4, 0, 0] }, material: { kind: 'lambert', albedo: [0.7592, 0.7257, 0.6863] } },
+  ],
+};
 const LAMP = (() => {
   const lamp = desc.primitives.find((p) => p.name === 'light')!;
   if (lamp.shape.kind !== 'quad') throw new Error('expected a quad lamp');
   const { q, e1, e2 } = lamp.shape;
   return new THREE.Vector3(...q).addScaledVector(new THREE.Vector3(...e1), 0.5).addScaledVector(new THREE.Vector3(...e2), 0.5);
 })();
-const COLORS = surfaceColors(desc);
+const COLORS = surfaceColors(descClosed);
 
 const sceneGroup = sceneToThree(desc);
 stage.add(sceneGroup);
@@ -287,7 +331,7 @@ const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) =>
  * scene's camera does not face, which the 3D view does see: a wrongly shaded
  * cap on the front of each ball.)
  */
-const isTwoSided = (name: string) => desc.primitives.find((p) => p.name === name)?.shape.kind === 'quad';
+const isTwoSided = (name: string) => descClosed.primitives.find((p) => p.name === name)?.shape.kind === 'quad';
 const shadingNormal = (p: THREE.Vector3, n: THREE.Vector3, twoSided: boolean) =>
   twoSided && n.dot(eye.clone().sub(p)) < 0 ? n.clone().negate() : n.clone();
 
@@ -326,13 +370,16 @@ interface Look {
   h: number;
   ks: number;
   lamp: boolean;
+  /** The glass ball: clear, so what passes through it is not tinted. */
+  glass: boolean;
 }
 /** At a hit seen from `viewer` (a wall is two-sided: its normal turned to the viewer's side). The lamp is not shaded. */
 function lookAt(agg: Aggregate, hit: Hit, viewer: Vec3): Look {
   const name = nameOf(hit);
   const col = COLORS.get(name)!;
   const c: [number, number, number] = [col.r, col.g, col.b];
-  if (name === 'light') return { c, b: 1, v: 1, h: 0, ks: 0, lamp: true };
+  const glass = name === GLASS;
+  if (name === 'light') return { c, b: 1, v: 1, h: 0, ks: 0, lamp: true, glass };
   let n = hit.ns;
   if (isTwoSided(name) && n.dot(viewer.sub(hit.p)) < 0) n = n.neg();
   const l = LAMP_V.sub(hit.p).normalize();
@@ -342,36 +389,100 @@ function lookAt(agg: Aggregate, hit: Hit, viewer: Vec3): Look {
   const ks = KS[name] ?? 0;
   const R = n.scale(2 * cos).sub(l);
   const h = ks > 0 && cos > 0 ? Math.max(0, R.dot(viewer.sub(hit.p).normalize())) ** SHININESS : 0;
-  return { c, b, v, h, ks, lamp: false };
+  return { c, b, v, h, ks, lamp: false, glass };
 }
 /**
  * The colour where a ray lands, with the passes in `use` (albedo always):
  * c (A + (1 - A) b v) + ks h v (lamp colour), each factor only once its
- * pass is in; on the mirror, once reflection is in, c r in place of the
- * first term.
+ * pass is in. On the mirror, once reflection is in, c r in place of the
+ * first term (r what the reflected ray sees); on the glass, once refraction
+ * is in, t (what the ray that goes through sees), untinted.
  */
-function colourWith(look: Look, use: ReadonlySet<Pass>, reflected: RGB | null): RGB {
+function colourWith(look: Look, use: ReadonlySet<Pass>, passed: RGB | null): RGB {
   if (look.lamp) return look.c;
   const v = use.has('shadow') ? look.v : 1;
   const diffuse = use.has('brightness') ? AMBIENT + (1 - AMBIENT) * look.b * v : use.has('shadow') ? AMBIENT + (1 - AMBIENT) * v : 1;
   const spec = use.has('phong') ? look.ks * look.h * v : 0;
-  const base = reflected && use.has('reflection') ? look.c.map((x, ch) => x * reflected[ch]!) : look.c.map((x) => x * diffuse);
+  const base = passed ? (look.glass ? passed : look.c.map((x, ch) => x * passed[ch]!)) : look.c.map((x) => x * diffuse);
   return [base[0]! + spec * LAMP_C[0], base[1]! + spec * LAMP_C[1], base[2]! + spec * LAMP_C[2]];
 }
-/** Every pass of this run but reflection: what the reflected ray's landing point is coloured with. */
-const BELOW_MIRROR = new Set(PASSES.filter((q) => q !== 'reflection'));
-/** The mirror: the direction a ray d leaves a hit in, and what it sees there (the whole recipe again; black out the open front). */
-function reflectDir(d: Vec3, hit: Hit): Vec3 {
-  return d.sub(hit.ns.scale(2 * d.dot(hit.ns)));
+
+// --- Following a ray on: off the mirror, through the glass (Whitted) --------
+const BLACK: RGB = [0, 0, 0];
+/** The closed box, where every bounced ray lands. */
+const aggClosed = buildScene(descClosed, 1, 1).aggregate;
+const isMirror = (hit: Hit) => MIRROR !== null && nameOf(hit) === MIRROR;
+const isGlass = (hit: Hit) => GLASS !== null && nameOf(hit) === GLASS;
+/** d mirrored about the normal n. */
+const reflectDir = (d: Vec3, n: Vec3) => d.sub(n.scale(2 * d.dot(n)));
+/** Snell's law: d bent through a surface whose normal n faces back against it, eta = n1 / n2; null past the critical angle. */
+function refractDir(d: Vec3, n: Vec3, eta: number): Vec3 | null {
+  const cosI = -d.dot(n);
+  const k = 1 - eta * eta * (1 - cosI * cosI);
+  return k < 0 ? null : d.scale(eta).add(n.scale(eta * cosI - Math.sqrt(k)));
 }
-function reflectedHit(agg: Aggregate, d: Vec3, hit: Hit): { dir: Vec3; land: Hit | null } {
-  const dir = reflectDir(d, hit);
-  return { dir, land: agg.intersect(new Ray(offsetRayOrigin(hit.p, hit.ng, dir), dir)) };
+/** Where a ray leaving the surface at `from` in direction `dir` lands next, in the closed box. */
+const cast = (from: Hit, dir: Vec3) => aggClosed.intersect(new Ray(offsetRayOrigin(from.p, from.ng, dir), dir));
+/**
+ * The glass at a hit, for a ray arriving along d: the normal facing the ray,
+ * the bent direction (null on total internal reflection), the mirrored one,
+ * and Fresnel's share reflected.
+ */
+function glassAt(d: Vec3, hit: Hit) {
+  const entering = d.dot(hit.ns) < 0;
+  const n = entering ? hit.ns : hit.ns.neg();
+  return { through: refractDir(d, n, entering ? 1 / IOR : IOR), off: reflectDir(d, n), F: frDielectric(-d.dot(hit.ns), IOR) };
 }
-function reflectedColour(agg: Aggregate, d: Vec3, hit: Hit): RGB {
-  const { land } = reflectedHit(agg, d, hit);
-  if (!land || nameOf(land) === MIRROR) return [0, 0, 0];
-  return colourWith(lookAt(agg, land, hit.p), BELOW_MIRROR, null);
+/** The colour a ray travelling along d sees where it lands: the whole recipe again (the tracer calling itself). */
+function seen(d: Vec3, land: Hit | null, use: ReadonlySet<Pass>, depth: number): RGB {
+  if (!land || depth > MAX_DEPTH) return BLACK;
+  // Inside the glass, the far side is just more glass: no shading there.
+  if (isGlass(land) && d.dot(land.ns) > 0 && use.has('refraction')) return passedOn(d, land, use, depth)!;
+  return colourWith(lookAt(aggClosed, land, land.p.sub(d)), use, passedOn(d, land, use, depth));
+}
+/**
+ * What the mirror or the glass at `hit` passes on to a ray arriving along d
+ * (null anywhere else, or before its pass is in): the mirror, what the
+ * reflected ray sees; the glass, what the bent ray sees (and, once the
+ * reflection pass is in too, Fresnel's share of the reflected ray mixed in;
+ * past the critical angle, only that).
+ */
+function passedOn(d: Vec3, hit: Hit, use: ReadonlySet<Pass>, depth: number): RGB | null {
+  if (isMirror(hit) && use.has('reflection')) {
+    const dir = reflectDir(d, hit.ns);
+    return seen(dir, cast(hit, dir), use, depth + 1);
+  }
+  if (isGlass(hit) && use.has('refraction')) {
+    const g = glassAt(d, hit);
+    const off = () => seen(g.off, cast(hit, g.off), use, depth + 1);
+    if (!g.through) return off();
+    const through = seen(g.through, cast(hit, g.through), use, depth + 1);
+    if (!use.has('reflection')) return through;
+    const r = off();
+    return [0, 1, 2].map((ch) => g.F * r[ch]! + (1 - g.F) * through[ch]!) as RGB;
+  }
+  return null;
+}
+/** For drawing: the path a ray takes from `hit` off the mirror and through the glass, to the first other surface (or a point far out). */
+function bouncePath(d: Vec3, hit: Hit): { pts: Vec3[]; landName: string | null } {
+  const pts = [hit.p];
+  let cur = hit;
+  let dir = d;
+  for (let depth = 0; depth < MAX_DEPTH; depth++) {
+    if (isMirror(cur)) dir = reflectDir(dir, cur.ns);
+    else if (isGlass(cur)) {
+      const g = glassAt(dir, cur);
+      dir = g.through ?? g.off;
+    } else break;
+    const next = cast(cur, dir);
+    if (!next) {
+      pts.push(cur.p.add(dir.scale(6)));
+      return { pts, landName: null };
+    }
+    pts.push(next.p);
+    cur = next;
+  }
+  return { pts, landName: nameOf(cur) };
 }
 
 const eyeDot = new THREE.Mesh(
@@ -1032,8 +1143,8 @@ interface PassCentre {
   name: string;
   /** shadow: where the shadow ray stops, or null if it reaches the light. */
   block: THREE.Vector3 | null;
-  /** reflection (mirror pixels): where the reflected ray lands, or a point far along it if it leaves the box. */
-  land: THREE.Vector3 | null;
+  /** reflection (mirror pixels), refraction (glass pixels): the ray's path on from here, off the mirror and through the glass, to where it lands. */
+  path: THREE.Vector3[] | null;
   landName: string | null;
   /** phong (shiny, lit points): the direction to the light reflected about the normal, and the highlight there. */
   R: THREE.Vector3 | null;
@@ -1081,6 +1192,7 @@ function restartPasses(jump: boolean): void {
   combined = PASSES.map(() => new Uint8Array(n * 3));
   const m = PASSES.length;
   const uses = PASSES.map((_, k) => new Set(PASSES.slice(0, k + 1)));
+  const ALL_USE = uses[m - 1]!;
   const sums = new Float64Array(2 * m * 3);
   for (let y = 0; y < res; y++) {
     for (let x = 0; x < res; x++) {
@@ -1094,8 +1206,9 @@ function restartPasses(jump: boolean): void {
           continue;
         }
         const look = lookAt(agg, hit, eyeV);
-        const mirror = nameOf(hit) === MIRROR && PASSES.includes('reflection');
-        const r: RGB | null = mirror ? reflectedColour(agg, ray.d, hit) : null;
+        // What the mirror or the glass passes on, with every pass of the run.
+        const r = passedOn(ray.d, hit, ALL_USE, 0);
+        const own: Pass | null = isMirror(hit) ? 'reflection' : isGlass(hit) ? 'refraction' : null;
         const add = (slot: number, rgb: readonly number[]) => {
           for (let ch = 0; ch < 3; ch++) sums[slot * 3 + ch]! += srgbEncode(rgb[ch]!);
         };
@@ -1105,11 +1218,12 @@ function restartPasses(jump: boolean): void {
           brightness: grey(look.b),
           shadow: grey(look.v),
           phong: grey(look.h), // 0 on matte surfaces
-          reflection: r ?? [0, 0, 0], // black off the mirror
+          reflection: own === 'reflection' && r ? r : BLACK, // black off the mirror
+          refraction: own === 'refraction' && r ? r : BLACK, // black off the glass
         };
         PASSES.forEach((q, k) => {
           add(k, value[q]);
-          add(m + k, colourWith(look, uses[k]!, r));
+          add(m + k, colourWith(look, uses[k]!, own && uses[k]!.has(own) ? r : null));
         });
       }
       const o = (y * res + x) * 3;
@@ -1134,7 +1248,7 @@ function restartPasses(jump: boolean): void {
       }
       const name = nameOf(hit);
       let block: THREE.Vector3 | null = null;
-      let land: THREE.Vector3 | null = null;
+      let path: THREE.Vector3[] | null = null;
       let landName: string | null = null;
       if (pPass === 'shadow' && name !== 'light') {
         const q = occlusionPoint(agg, { p: hit.p, ng: hit.ng }, LAMP_POINT);
@@ -1151,12 +1265,12 @@ function restartPasses(jump: boolean): void {
           R = nn.clone().multiplyScalar(2 * nn.dot(l)).sub(l);
         }
       }
-      if (pPass === 'reflection' && name === MIRROR) {
-        const { dir, land: h } = reflectedHit(agg, ray.d, hit);
-        land = h ? toV(h.p) : toV(hit.p.add(dir.scale(6)));
-        landName = h ? nameOf(h) : null;
+      if ((pPass === 'reflection' && isMirror(hit)) || (pPass === 'refraction' && isGlass(hit))) {
+        const b = bouncePath(ray.d, hit);
+        path = b.pts.map(toV);
+        landName = b.landName;
       }
-      passCentres.push({ p: toV(hit.p), n: toV(hit.ns).normalize(), twoSided: isTwoSided(name), name, block, land, landName, R, h });
+      passCentres.push({ p: toV(hit.p), n: toV(hit.ns).normalize(), twoSided: isTwoSided(name), name, block, path, landName, R, h });
     }
   }
 
@@ -1195,22 +1309,31 @@ function restartPasses(jump: boolean): void {
     passCentres.reduce<number | null>((best, c, i) => (c?.name === ball && (best === null || c.h > passCentres[best]!.h) ? i : best), null);
   const slow: (number | null)[] =
     pPass === 'albedo'
-      ? [ballTop, pick((c) => c.name === 'left'), pick((c) => c.name === 'floor'), pick((c) => c.name === 'right'), pick((c) => c.name === MIRROR)]
+      ? [ballTop, pick((c) => c.name === 'left'), pick((c) => c.name === 'floor'), pick((c) => c.name === 'right'), pick((c) => c.name === 'ballBlue')]
       : pPass === 'brightness'
-        ? [ballTop, pick((c) => c.name === 'floor'), pick((c) => c.name === 'back'), pick((c) => c.name === 'left'), pick((c) => c.name === MIRROR)]
+        ? [ballTop, pick((c) => c.name === 'floor'), pick((c) => c.name === 'back'), pick((c) => c.name === 'left'), pick((c) => c.name === 'ballBlue')]
         : pPass === 'shadow'
-          ? [ballTop, longBlocked('ball'), pick((c) => c.name === 'floor' && !c.block), longBlocked(MIRROR), pick((c) => c.name === 'back' && !c.block)]
+          ? [ballTop, longBlocked('ball'), pick((c) => c.name === 'floor' && !c.block), longBlocked('ballBlue'), pick((c) => c.name === 'back' && !c.block)]
           : pPass === 'phong'
             ? // the brightest highlight on each ball, the middle of the white ball, and two matte surfaces (no highlight)
-              [peak('ball'), pick((c) => c.name === 'ball'), pick((c) => c.name === 'floor'), peak(MIRROR), pick((c) => c.name === 'back')]
-            : // reflection: mirror pixels, with two that are not the mirror and come back black
-            [
-              pick((c) => c.name === MIRROR && c.landName === 'left'),
-              pick((c) => c.name === 'floor'),
-              pick((c) => c.name === MIRROR && c.landName === 'ball'),
-              pick((c) => c.name === 'back'),
-              pick((c) => c.name === MIRROR && c.landName === 'floor'),
-            ];
+              [peak('ball'), pick((c) => c.name === 'ball'), pick((c) => c.name === 'floor'), peak('ballBlue'), pick((c) => c.name === 'back')]
+            : pPass === 'reflection'
+              ? // mirror pixels, with two that are not the mirror and come back black
+                [
+                  pick((c) => c.name === MIRROR && c.landName === 'left'),
+                  pick((c) => c.name === 'floor'),
+                  pick((c) => c.name === MIRROR && c.landName === 'ball'),
+                  pick((c) => c.name === 'back'),
+                  pick((c) => c.name === MIRROR && c.landName === 'floor'),
+                ]
+              : // refraction: glass pixels that see three different things through it, and two that are not the glass and come back black
+                (() => {
+                  const through = ['back', 'right', 'floor', 'left', 'ball', 'ceiling']
+                    .map((w) => pick((c) => c.name === GLASS && c.landName === w))
+                    .filter((i) => i !== null)
+                    .slice(0, 3);
+                  return [through[0] ?? null, pick((c) => c.name === 'floor'), through[1] ?? null, pick((c) => c.name === 'back'), through[2] ?? null];
+                })();
   const walk = [...new Set(slow.filter((i): i is number => i !== null))];
   const scanned = (i: number) => passCentres[i] !== null;
   order = [...walk, ...Array.from({ length: n }, (_, i) => i).filter((i) => scanned(i) && !walk.includes(i))];
@@ -1242,14 +1365,37 @@ function panelOpacity(panel: FilmPanel, a: number): void {
 
 // The pass slides' extra rays: the shadow ray's stop, the reflected ray and where it lands.
 const blockDot = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 10), new THREE.MeshBasicMaterial({ color: C.rust, toneMapped: false }));
-const bounce = polyline([[0, 0, 0], [0, 0, 1]], { color: C.bone, width: 5 });
+/** Room for the longest path: three.js keeps a line's segment count from its first draw, so it is made full length and shorter paths are padded. */
+const BOUNCE_POINTS = MAX_DEPTH + 2;
+const bounce = polyline(Array.from({ length: BOUNCE_POINTS }, (_, i) => [0, 0, i] as [number, number, number]), { color: C.blue, width: 6 }); // blue: the palette's colour for glass and refraction; cream vanished on the walls
 const mirrored = polyline([[0, 0, 0], [0, 0, 1]], { color: C.ochreLight, width: 6 }); // phong: the light's direction, reflected
-const landDot = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 10), new THREE.MeshBasicMaterial({ color: C.bone, toneMapped: false }));
+const landDot = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 10), new THREE.MeshBasicMaterial({ color: C.blue, toneMapped: false }));
 for (const o of [blockDot, bounce, landDot, mirrored]) {
   (o.material as THREE.Material).depthTest = false;
+  // Drawn with the transparent objects, which come after the glass ball's
+  // transmission: as opaque lines the glass painted over the path inside it.
+  (o.material as THREE.Material).transparent = true;
   o.renderOrder = 6;
   o.visible = false;
   stage.add(o);
+}
+
+/** The first share u of a path, by length. */
+function partOf(pts: THREE.Vector3[], u: number): THREE.Vector3[] {
+  const lens = pts.slice(1).map((q, i) => q.distanceTo(pts[i]!));
+  let left = u * lens.reduce((a, b) => a + b, 0);
+  const out = [pts[0]!];
+  for (let i = 0; i < lens.length; i++) {
+    if (left >= lens[i]!) {
+      out.push(pts[i + 1]!);
+      left -= lens[i]!;
+    } else {
+      out.push(pts[i]!.clone().lerp(pts[i + 1]!, left / lens[i]!));
+      break;
+    }
+  }
+  while (out.length < BOUNCE_POINTS) out.push(out[out.length - 1]!.clone());
+  return out;
 }
 
 function framePass(t: number): void {
@@ -1313,11 +1459,12 @@ function framePass(t: number): void {
       setWedge(q, centre.R, toEye, centre.n);
       wedge.visible = probe >= 1;
     }
-    if (pPass === 'reflection' && centre.land) {
-      setPolyline(bounce, [centre.p, centre.p.clone().lerp(centre.land, Math.max(1e-3, probe))]);
+    if (centre.path) {
+      // The ray on, off the mirror or through the glass, drawn out along its whole path.
+      setPolyline(bounce, partOf(centre.path, Math.max(1e-3, probe)));
       bounce.visible = arrived && probe > 0;
       landDot.visible = arrived && probe >= 1 && centre.landName !== null;
-      landDot.position.copy(centre.land);
+      landDot.position.copy(centre.path[centre.path.length - 1]!);
     }
   }
 
