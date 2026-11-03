@@ -1,5 +1,7 @@
 // The spectral version of cornell-short that the bakes for the Part II camera
-// slides render (bake-spectral-short, bake-lens-spectra).
+// slides render (bake-spectral-short, bake-lens-spectra), and of lf-room (the
+// light-field talk's room, same walls and lamp), which bake-lens-spectra can
+// render instead.
 //
 // The renderer is RGB, but its three channels never mix: every material here
 // (Lambert, the conductor's Schlick Fresnel) multiplies channel by channel. So
@@ -30,11 +32,19 @@ const REFLECT: Record<string, (nm: number) => number> = {
   right: (nm) => 0.05 + 0.42 * Math.exp(-(((nm - 535) / 40) ** 2)),
   ball: () => 0.73,
   ballBlue: (nm) => 0.33 + 0.5 / (1 + Math.exp((nm - 520) / 30)), // the conductor's f0
+  // lf-room: the box is the walls' white; the gold ball's f0, low in the blue,
+  // matched by eye to its RGB [0.9, 0.78, 0.5].
+  ...Object.fromEntries(['box-top', 'box-px', 'box-nx', 'box-pz', 'box-nz'].map((n) => [n, (nm: number) => 0.68 + (0.08 * (nm - 400)) / 300])),
+  goldBall: (nm) => 0.5 + 0.4 / (1 + Math.exp(-(nm - 510) / 30)),
 };
 
-/** Run `run` (0, 1, …): its three wavelengths, and cornell-short at them, one per channel. */
-export function spectralRun(run: number, camera?: SceneDescription['camera']): { nms: number[]; desc: SceneDescription } {
-  const desc = SCENES['cornell-short'];
+/** Run `run` (0, 1, …): its three wavelengths, and the scene (cornell-short unless named) at them, one per channel. */
+export function spectralRun(
+  run: number,
+  camera?: SceneDescription['camera'],
+  scene: 'cornell-short' | 'lf-room' = 'cornell-short',
+): { nms: number[]; desc: SceneDescription } {
+  const desc = SCENES[scene];
   const L = desc.primitives.find((p) => p.emission)!.emission!.radiance[1]; // the lamp's brightness, from its green channel
   const nms = [0, 1, 2].map((c) => NM[Math.min(3 * run + c, NM.length - 1)]!);
   const three = (f: (nm: number) => number) => nms.map(f) as [number, number, number];

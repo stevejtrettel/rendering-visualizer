@@ -29,7 +29,7 @@ const MATERIAL_TEST_VIEW: VizView = { eye: [2.2, 2.9, 6.1], target: [0, 1.0, 0.4
 const CORNELL_SHORT_VIEW: VizView = { eye: [6.4, 2.7, 13.2], target: [0, 2.1, 2.4] };
 
 export function vizViewFor(name: string): VizView {
-  if (name === 'cornell-short') return CORNELL_SHORT_VIEW;
+  if (name === 'cornell-short' || name === 'lf-room') return CORNELL_SHORT_VIEW; // lf-room fills the same cube
   if (name === 'open-stage') return OPEN_STAGE_VIEW;
   if (name === 'material-row') return MATERIAL_ROW_VIEW;
   if (name === 'material-test') return MATERIAL_TEST_VIEW;

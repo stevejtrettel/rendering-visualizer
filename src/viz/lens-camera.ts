@@ -32,16 +32,30 @@ export const SENSOR_DISTANCE = 1.1;
 export const LENS_RADIUS = 0.36;
 /** Along the axis, where the rays from the pixel meet. */
 export const FOCUS = 3.8;
-/** What the pixel looks at, through the lens's centre: the white ball's upper-left edge, the red wall behind. */
-const LOOK_AT: V = [-1.5, 1.38, -0.6];
+/**
+ * What the pixel looks at, through the lens's centre, per scene.
+ * cornell-short: the white ball's upper-left edge, the red wall behind.
+ * lf-room: the same on the gold ball (centre [-0.84, 0.72, 0.3], radius 0.72),
+ * aimed just outside its upper-left silhouette, as cornell-short's is.
+ */
+export const LOOK_AT = {
+  'cornell-short': [-1.5, 1.38, -0.6] as V,
+  'lf-room': [-1.38, 1.24, 0.3] as V,
+};
+export type LensScene = keyof typeof LOOK_AT;
 /** Rays through the lens. */
 export const K = 40;
 
-const chief = unit(sub(LOOK_AT, LENS_CENTRE));
-/** The pixel, on the sensor behind the lens. */
-export const PIXEL: V = add(LENS_CENTRE, chief, -SENSOR_DISTANCE / dot(chief, FORWARD));
-/** Where every ray from the pixel crosses, in front of the lens. */
-export const MEET: V = add(LENS_CENTRE, chief, FOCUS / dot(chief, FORWARD));
+/** The pixel, on the sensor behind the lens, and where every ray from it crosses, in front of the lens. */
+export function lensRig(scene: LensScene = 'cornell-short'): { pixel: V; meet: V } {
+  const chief = unit(sub(LOOK_AT[scene], LENS_CENTRE));
+  return {
+    pixel: add(LENS_CENTRE, chief, -SENSOR_DISTANCE / dot(chief, FORWARD)),
+    meet: add(LENS_CENTRE, chief, FOCUS / dot(chief, FORWARD)),
+  };
+}
+/** cornell-short's pixel and meeting point. */
+export const { pixel: PIXEL, meet: MEET } = lensRig();
 
 /** Lens point k: a sunflower spiral, centre outward, so the rays fill the lens evenly as they come. */
 export function lensPoint(k: number): V {
@@ -49,8 +63,8 @@ export function lensPoint(k: number): V {
   const a = k * Math.PI * (3 - Math.sqrt(5));
   return add(add(LENS_CENTRE, RIGHT, r * Math.cos(a)), UP, r * Math.sin(a));
 }
-/** Ray k: from its lens point toward MEET. */
-export function lensRay(k: number): { origin: V; dir: V } {
+/** Ray k: from its lens point toward the scene's meeting point. */
+export function lensRay(k: number, scene: LensScene = 'cornell-short'): { origin: V; dir: V } {
   const origin = lensPoint(k);
-  return { origin, dir: unit(sub(MEET, origin)) };
+  return { origin, dir: unit(sub(lensRig(scene).meet, origin)) };
 }

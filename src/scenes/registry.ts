@@ -302,9 +302,75 @@ export function materialTestScene(material: MaterialDescription): SceneDescripti
   };
 }
 
+// The light-field talk's room (~/Code/light-field, src/scene/scene.ts
+// `unwrapRoom`), scaled x2 so it fills cornell-short's cube: interior
+// [-2,2] x [0,4] x [-2,2], front OPEN, so cornell-short's camera and the
+// lens-camera constants fit it unchanged (Steve, 2026-10-30). Red left wall,
+// green right, a white box standing on the floor (five faces, no bottom), a
+// glossy gold ball. Walls, wall names and lamp colour are cornell-short's,
+// so styleShortBox and the spectral bake treat it the same way; the box is
+// the walls' white, as in the source room.
+//
+// The ball: light-field's glossy is GGX with alpha = 0.15 given directly;
+// here the exposed roughness maps to alpha = roughness^2, so the same lobe
+// is roughness sqrt(0.15) = 0.387.
+//
+// The lamp is light-field's 0.9 x 0.9, so 1.8 x 1.8 here, at cornell-short's
+// TOTAL POWER (Phi = pi L A): CORNELL's 0.5^2 radiance times (0.5/1.8)^2.
+const LF = 2; // the scale from the light-field room
+const LF_LAMP_SIDE = 0.9 * LF;
+const lfScale = (v: readonly number[]): [number, number, number] => [v[0]! * LF, v[1]! * LF, v[2]! * LF];
+const shortWall = (name: string) => CORNELL_SHORT.primitives.find((p) => p.name === name)!;
+/**
+ * light-field's boxQuads: five faces of a y-rotated box standing on the
+ * floor (no bottom), outward normals (e1 x e2), in its unscaled units.
+ */
+function lfBoxFaces(cx: number, cz: number, halfX: number, halfZ: number, height: number, angle: number) {
+  const X = [Math.cos(angle), 0, -Math.sin(angle)];
+  const Z = [Math.sin(angle), 0, Math.cos(angle)];
+  const corner = (sx: number, y: number, sz: number) =>
+    [0, 1, 2].map((i) => [cx, y, cz][i]! + X[i]! * sx * halfX + Z[i]! * sz * halfZ);
+  const uX = X.map((c) => c * 2 * halfX);
+  const uZ = Z.map((c) => c * 2 * halfZ);
+  const uY = [0, height, 0];
+  return [
+    { name: 'box-top', q: corner(-1, height, -1), e1: uZ, e2: uX },
+    { name: 'box-px', q: corner(+1, 0, -1), e1: uY, e2: uZ },
+    { name: 'box-nx', q: corner(-1, 0, -1), e1: uZ, e2: uY },
+    { name: 'box-pz', q: corner(-1, 0, +1), e1: uX, e2: uY },
+    { name: 'box-nz', q: corner(-1, 0, -1), e1: uY, e2: uX },
+  ];
+}
+const CORNELL_LAMP_PRIM = CORNELL.primitives.find((p) => p.name === 'light')!;
+const LF_ROOM: SceneDescription = {
+  camera: CORNELL_SHORT.camera,
+  primitives: [
+    ...['floor', 'ceiling', 'back', 'left', 'right'].map(shortWall),
+    {
+      ...CORNELL_LAMP_PRIM,
+      shape: { kind: 'quad', q: [-LF_LAMP_SIDE / 2, 3.998, -LF_LAMP_SIDE / 2], e1: [LF_LAMP_SIDE, 0, 0], e2: [0, 0, LF_LAMP_SIDE] },
+      emission: {
+        ...CORNELL_LAMP_PRIM.emission!,
+        radiance: CORNELL_LAMP_PRIM.emission!.radiance.map((c) => c * (0.5 / LF_LAMP_SIDE) ** 2) as [number, number, number],
+      },
+    },
+    ...lfBoxFaces(0.42, -0.1, 0.34, 0.34, 0.68, 0.35).map((f) => ({
+      name: f.name,
+      shape: { kind: 'quad' as const, q: lfScale(f.q), e1: lfScale(f.e1), e2: lfScale(f.e2) },
+      material: shortWall('back').material,
+    })),
+    {
+      name: 'goldBall',
+      shape: { kind: 'sphere', center: lfScale([-0.42, 0.36, 0.15]), radius: 0.36 * LF },
+      material: { kind: 'conductor', f0: [0.9, 0.78, 0.5], roughness: Math.sqrt(0.15) },
+    },
+  ],
+};
+
 export const SCENES = {
   cornell: CORNELL,
   'cornell-short': CORNELL_SHORT,
+  'lf-room': LF_ROOM,
   'cornell-glass': CORNELL_GLASS,
   'cornell-caustic': CORNELL_CAUSTIC,
   'cornell-delta': CORNELL_DELTA,

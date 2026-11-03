@@ -40,12 +40,16 @@ import { styleShortBox } from '@/viz/short-box';
 import { polyline, setPolyline } from '@/viz/lines';
 import { label } from '@/viz/text';
 import { toXYZ, xyzToSrgb, nmSrgb } from '@/viz/spectra';
-import { LENS_CENTRE, FORWARD, UP, RIGHT, FOV_DEGREES, SENSOR_DISTANCE, LENS_RADIUS, PIXEL, K, lensRay } from '@/viz/lens-camera';
-import LENS from '@/data/lens-spectra.json';
+import { LENS_CENTRE, FORWARD, UP, RIGHT, FOV_DEGREES, SENSOR_DISTANCE, LENS_RADIUS, K, lensRig, lensRay, type LensScene } from '@/viz/lens-camera';
+import LENS_SHORT from '@/data/lens-spectra.json';
+import LENS_LF_ROOM from '@/data/lens-spectra-lf-room.json';
 import * as THREE from 'three';
 
 // --- Figure spec -----------------------------------------------------------
-const SCENE: SceneName = 'cornell-short';
+/** ?scene=lf-room: the light-field talk's room (red/green walls, white box, gold ball) instead of the short box. */
+const SCENE: SceneName & LensScene = new URLSearchParams(location.search).get('scene') === 'lf-room' ? 'lf-room' : 'cornell-short';
+const LENS = SCENE === 'lf-room' ? LENS_LF_ROOM : LENS_SHORT;
+const PIXEL = lensRig(SCENE).pixel;
 const PULL_BACK = 1.15; // the pinhole slide's view
 const SHIFT = -0.17;
 // Timing, seconds.
@@ -129,7 +133,7 @@ const rayColours = spectra.map(colourOf);
 const meshes = sceneGroup.children.filter((o) => o instanceof THREE.Mesh);
 const caster = new THREE.Raycaster();
 const rayLines = Array.from({ length: K }, (_, k) => {
-  const { origin, dir } = lensRay(k);
+  const { origin, dir } = lensRay(k, SCENE);
   caster.set(V3(origin), V3(dir));
   const hit = caster.intersectObjects(meshes, false)[0]?.point ?? V3(origin).addScaledVector(V3(dir), 8);
   const l = polyline([V3(PIXEL), V3(origin), hit], { color: rayColours[k]!.getHex(), width: 2.5, opacity: 0.9 });
