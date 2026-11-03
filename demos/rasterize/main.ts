@@ -93,6 +93,41 @@
  * and faster. The finished screen is light's image exactly (the same
  * per-sample computation). The 3D scene keeps its own lit look throughout.
  *
+ * albedo, brightness, shadow, reflection: Whitted's fake 1980 tracer, built
+ * as passes (Steve, 2026-11-03: "each time we scan the image and produce our
+ * data ... each time we take the existing images and we combine them to see
+ * how it improved; at the end we have like 4 images that we stack together").
+ * One slide per pass. Each starts where the last ended (the passes so far in
+ * a row under the screen, their combination on the screen); the screen
+ * clears; a scan traces every pixel and fills it with this pass's number,
+ * TRACE_SLOW slow rays first, picked to show what the pass measures, then
+ * the rest in raster order; the finished pass shrinks into its place in the
+ * row; then every pass so far flies onto the screen and they combine.
+ *
+ *   albedo      the surface colour where the pixel's ray lands      c
+ *   brightness  cos theta, the angle to the light (the elbow)       b
+ *   shadow      does a ray from there reach the light: 1 or 0       v
+ *   reflection  what the reflected ray sees; black off the mirror   r
+ *   phong       the highlight: (R . V)^SHININESS on the shiny balls  h
+ *               (R the light's direction mirrored about the normal, V
+ *               toward the eye; 0 on matte surfaces), added in the
+ *               lamp's colour: + ks h v. A trial in place of reflection
+ *               (Steve, 2026-11-03), or with it: the run of slides is
+ *               `&passes=` (default albedo,brightness,shadow,reflection).
+ *
+ * combined, after each:  c;  c (A + (1 - A) b);  c (A + (1 - A) b v);  and on
+ * the mirror c r instead, A = AMBIENT (Steve: we do want an ambient term).
+ * The blue ball is a perfect mirror tinted its own colour (Steve), in this
+ * tracer only; until the reflection pass it is shaded like any other
+ * surface. What the reflected ray sees is the whole recipe again where it
+ * lands, c (A + (1 - A) b v) there: the tracer calling itself. One bounce is
+ * exact here (nothing else is shiny); a reflected ray that leaves through
+ * the open front sees black. The light is a point at the lamp's centre, so
+ * shadows are hard; the lamp itself is not shaded. Everything per sample
+ * (SPP), as the other slides. Film resolution goes to 256 on these slides;
+ * changing it recomputes every pass and jumps to the finished slide, which
+ * holds (no loop).
+ *
  * The plane sits at PLANE_DISTANCE, further out than level-zero's film, so
  * the flattened scene is big enough to read. Both ramp to the finished
  * image and hold.
@@ -106,6 +141,10 @@ import { surfaceColors } from '@/core/integrators/first-hit';
 import { cameraSample } from '@/core/integrators/estimators';
 import { IndependentSampler } from '@/core/sampler/independent';
 import { srgbEncode } from '@/render/film';
+import { occlusionPoint, visible } from '@/core/geometry/visibility';
+import { offsetRayOrigin } from '@/core/geometry/offset';
+import { Vec3 } from '@/core/math/vec3';
+import { Ray } from '@/core/math/ray';
 import { pixelSeedKey } from '@/core/sampler/sampler';
 import { sceneToThree } from '@/viz/three-scene';
 import { styleShortBox } from '@/viz/short-box';
@@ -120,16 +159,36 @@ import * as THREE from 'three';
 // --- Figure spec -----------------------------------------------------------
 const SCENE: SceneName = 'cornell-short';
 const SPP = 8; // antialiasing only
-type Shade = 'flat' | 'light' | 'trace';
+const ALL_PASSES = ['albedo', 'brightness', 'shadow', 'phong', 'reflection'] as const;
+type Pass = (typeof ALL_PASSES)[number];
+/**
+ * The passes in this run of slides, in order: `&passes=` in the URL, comma
+ * separated; by default albedo, brightness, shadow, reflection. Phong is a
+ * trial in place of reflection (Steve, 2026-11-03), or with it.
+ */
+const PASSES: readonly Pass[] = (() => {
+  const list = new URLSearchParams(location.search).get('passes')?.split(',') ?? ['albedo', 'brightness', 'shadow', 'reflection'];
+  return list.filter((q): q is Pass => (ALL_PASSES as readonly string[]).includes(q));
+})();
+type Shade = 'flat' | 'light' | 'trace' | Pass;
 const SHADE: Shade = (() => {
   const s = new URLSearchParams(location.search).get('shade');
-  return s === 'light' || s === 'trace' ? s : 'flat';
+  return s === 'light' || s === 'trace' || (ALL_PASSES as readonly string[]).includes(s ?? '') ? (s as Shade) : 'flat';
 })();
+/** Which pass this slide builds (0..3), or -1 on the other slides. */
+const PASS_INDEX = (PASSES as readonly string[]).indexOf(SHADE);
+const IS_PASS = PASS_INDEX >= 0;
+const MIRROR = 'ballBlue'; // the passes' perfect mirror, tinted its own colour
 const AMBIENT = 0.2;
 /** Projected one at a time, in this order: back to front, a true depth order for this scene. */
 const PIECES = ['back', 'left', 'right', 'floor', 'ceiling', 'light', 'ball', 'ballBlue'];
-/** The screen, on the HUD, and the 3D view's sideways slide: as scene-and-screen. */
-const SCREEN = { center: [-0.85, -0.13] as [number, number], height: 1.15 };
+/** The screen, on the HUD, and the 3D view's sideways slide: as scene-and-screen. On the pass slides a little smaller and higher, to leave room for the row of passes under it. */
+const SCREEN = IS_PASS
+  ? { center: [-0.85, 0.06] as [number, number], height: 1.0 }
+  : { center: [-0.85, -0.13] as [number, number], height: 1.15 };
+/** The pass slides' row of passes under the screen: centres' height, each one's size, the gap between. */
+const THUMB = { y: -0.66, height: 0.27, gap: 0.06 };
+const thumbCenter = (j: number): [number, number] => [SCREEN.center[0] + (j - (PASSES.length - 1) / 2) * (THUMB.height + THUMB.gap), THUMB.y];
 const SHIFT = -0.25;
 const PLANE_DISTANCE = 3;
 const DEPTH_KEEP = 0.03; // the flattened slab's thickness, relative to the scene's depth
@@ -170,6 +229,26 @@ const LIT_3D = [MULTIPLY[1]! + 0.3, MULTIPLY[1]! + 1.7]; // a beat on the result
 /** Where the colour image waits while the grey is built: HUD centre, and its size relative to the screen. */
 const PARKED = { center: [-1.22, -0.8] as [number, number], scale: 0.3 };
 const HOLD = 3;
+// The pass slides. Each slow ray: out to the scene (P_OUT), then what this
+// pass measures there (P_PROBE: the elbow, the shadow ray, the reflected
+// ray), then its pixel is filled (P_FILL).
+const P_STEP: Record<Pass, number> = { albedo: 2.0, brightness: 2.4, shadow: 3.0, phong: 2.8, reflection: 3.0 };
+const P_FILL: Record<Pass, number> = { albedo: 1.2, brightness: 1.6, shadow: 2.2, phong: 2.0, reflection: 2.2 };
+const P_OUT = 0.8;
+const P_PROBE = [1.0, 1.7];
+const P_CLEAR = [0.3, 0.9]; // the last slide's combined image leaves the screen
+const P_SCAN = 1.2; // the first slow ray
+const pPass: Pass = IS_PASS ? PASSES[PASS_INDEX]! : 'albedo';
+const pSlowEnd = P_SCAN + TRACE_SLOW * P_STEP[pPass];
+const P_FAST = [pSlowEnd, pSlowEnd + 8]; // the rest of the pixels, raster order, eased in
+const P_PARK = [P_FAST[1]! + 0.5, P_FAST[1]! + 1.7]; // the finished pass shrinks into its place in the row
+const P_STACK = P_PARK[1]! + 0.5; // then every pass so far flies onto the screen, one after another,
+const P_STACK_EACH = 0.9;
+const P_STACK_STAGGER = 0.3;
+const pStackEnd = P_STACK + Math.max(0, PASS_INDEX) * P_STACK_STAGGER + P_STACK_EACH;
+const P_RESULT = [pStackEnd + 0.2, pStackEnd + 0.9]; // and they become the combined image
+const P_HOME = [P_RESULT[1]! + 0.4, P_RESULT[1]! + 1.2]; // the passes back in the row
+const P_END = P_HOME[1]!;
 
 // --- Stage -----------------------------------------------------------------
 const stage = createStage({ position: [0, 2.8, 15.5], target: [0, 1.5, 1.0], fov: 42 });
@@ -216,6 +295,83 @@ const shadingNormal = (p: THREE.Vector3, n: THREE.Vector3, twoSided: boolean) =>
 function brightnessAt(name: string, p: THREE.Vector3, n: THREE.Vector3): number {
   if (name === 'light') return 1;
   return AMBIENT + (1 - AMBIENT) * Math.max(0, shadingNormal(p, n, isTwoSided(name)).dot(LAMP.clone().sub(p).normalize()));
+}
+
+// --- The passes' numbers at a surface point ---------------------------------
+type Aggregate = ReturnType<typeof buildScene>['aggregate'];
+type Hit = NonNullable<ReturnType<Aggregate['intersect']>>;
+const nameOf = (hit: Hit) => (hit.primitive as unknown as { name: string }).name;
+const LAMP_V = new Vec3(LAMP.x, LAMP.y, LAMP.z);
+/** The lamp's centre as a surface point, facing down into the room: where shadow rays aim. */
+const LAMP_POINT = { p: LAMP_V, ng: new Vec3(0, -1, 0) };
+/** Phong's highlight: its exponent, and its strength on each surface (the two balls shiny, the walls matte). */
+const SHININESS = 30;
+const KS: Record<string, number> = { ball: 0.5, ballBlue: 0.5 };
+/** The highlight is the lamp's colour. */
+const LAMP_C = (() => {
+  const c = COLORS.get('light')!;
+  return [c.r, c.g, c.b] as const;
+})();
+type RGB = [number, number, number];
+/**
+ * What the passes record where a ray lands: albedo c, brightness b = cos
+ * theta, shadow v (light visible), phong h = (R . V)^SHININESS on a shiny
+ * surface (R the direction to the light reflected about the normal, V the
+ * direction to the viewer), 0 on a matte one.
+ */
+interface Look {
+  c: RGB;
+  b: number;
+  v: number;
+  h: number;
+  ks: number;
+  lamp: boolean;
+}
+/** At a hit seen from `viewer` (a wall is two-sided: its normal turned to the viewer's side). The lamp is not shaded. */
+function lookAt(agg: Aggregate, hit: Hit, viewer: Vec3): Look {
+  const name = nameOf(hit);
+  const col = COLORS.get(name)!;
+  const c: [number, number, number] = [col.r, col.g, col.b];
+  if (name === 'light') return { c, b: 1, v: 1, h: 0, ks: 0, lamp: true };
+  let n = hit.ns;
+  if (isTwoSided(name) && n.dot(viewer.sub(hit.p)) < 0) n = n.neg();
+  const l = LAMP_V.sub(hit.p).normalize();
+  const cos = n.dot(l);
+  const b = Math.max(0, cos);
+  const v = visible(agg, { p: hit.p, ng: hit.ng }, LAMP_POINT) ? 1 : 0;
+  const ks = KS[name] ?? 0;
+  const R = n.scale(2 * cos).sub(l);
+  const h = ks > 0 && cos > 0 ? Math.max(0, R.dot(viewer.sub(hit.p).normalize())) ** SHININESS : 0;
+  return { c, b, v, h, ks, lamp: false };
+}
+/**
+ * The colour where a ray lands, with the passes in `use` (albedo always):
+ * c (A + (1 - A) b v) + ks h v (lamp colour), each factor only once its
+ * pass is in; on the mirror, once reflection is in, c r in place of the
+ * first term.
+ */
+function colourWith(look: Look, use: ReadonlySet<Pass>, reflected: RGB | null): RGB {
+  if (look.lamp) return look.c;
+  const v = use.has('shadow') ? look.v : 1;
+  const diffuse = use.has('brightness') ? AMBIENT + (1 - AMBIENT) * look.b * v : use.has('shadow') ? AMBIENT + (1 - AMBIENT) * v : 1;
+  const spec = use.has('phong') ? look.ks * look.h * v : 0;
+  const base = reflected && use.has('reflection') ? look.c.map((x, ch) => x * reflected[ch]!) : look.c.map((x) => x * diffuse);
+  return [base[0]! + spec * LAMP_C[0], base[1]! + spec * LAMP_C[1], base[2]! + spec * LAMP_C[2]];
+}
+/** Every pass of this run but reflection: what the reflected ray's landing point is coloured with. */
+const BELOW_MIRROR = new Set(PASSES.filter((q) => q !== 'reflection'));
+/** The mirror: the direction a ray d leaves a hit in, and what it sees there (the whole recipe again; black out the open front). */
+function reflectDir(d: Vec3, hit: Hit): Vec3 {
+  return d.sub(hit.ns.scale(2 * d.dot(hit.ns)));
+}
+function reflectedHit(agg: Aggregate, d: Vec3, hit: Hit): { dir: Vec3; land: Hit | null } {
+  const dir = reflectDir(d, hit);
+  return { dir, land: agg.intersect(new Ray(offsetRayOrigin(hit.p, hit.ng, dir), dir)) };
+}
+function reflectedColour(agg: Aggregate, d: Vec3, hit: Hit): RGB {
+  const { land } = reflectedHit(agg, d, hit);
+  if (!land || nameOf(land) === MIRROR) return [0, 0, 0];
+  return colourWith(lookAt(agg, land, hit.p), BELOW_MIRROR, null);
 }
 
 const eyeDot = new THREE.Mesh(
@@ -434,6 +590,24 @@ lightPoint.position.copy(LAMP).add(new THREE.Vector3(0, -0.12, 0));
 lightPoint.visible = SHADE !== 'flat';
 stage.add(lightPoint);
 
+/** The wedge: the angle at q between unit directions a and b, filled. `fallback` is any direction off a, for when a and b are parallel. */
+function setWedge(q: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3, fallback: THREE.Vector3): void {
+  const angle = a.angleTo(b);
+  const axis = a.clone().cross(b);
+  if (axis.lengthSq() < 1e-9) axis.copy(fallback).cross(a);
+  axis.normalize();
+  const pos = wedgeGeometry.getAttribute('position') as THREE.BufferAttribute;
+  const rim = (k: number) => q.clone().addScaledVector(a.clone().applyAxisAngle(axis, (angle * k) / WEDGE_STEPS), WEDGE_R);
+  for (let k = 0; k < WEDGE_STEPS; k++) {
+    const r0 = rim(k);
+    const r1 = rim(k + 1);
+    pos.setXYZ(3 * k, q.x, q.y, q.z);
+    pos.setXYZ(3 * k + 1, r0.x, r0.y, r0.z);
+    pos.setXYZ(3 * k + 2, r1.x, r1.y, r1.z);
+  }
+  pos.needsUpdate = true;
+}
+
 function placeProbe(p: THREE.Vector3, normal: THREE.Vector3, twoSided: boolean, x: number, y: number): void {
   const n = shadingNormal(p, normal, twoSided);
   const q = p.clone().addScaledVector(n, 0.01);
@@ -452,20 +626,7 @@ function placeProbe(p: THREE.Vector3, normal: THREE.Vector3, twoSided: boolean, 
   ]);
   setPolyline(probeToLamp, [q, lightPoint.position]);
   // The angle between them, filled: a fan of triangles from the point.
-  const angle = n.angleTo(l);
-  const axis = n.clone().cross(l);
-  if (axis.lengthSq() < 1e-9) axis.copy(across).cross(n);
-  axis.normalize();
-  const pos = wedgeGeometry.getAttribute('position') as THREE.BufferAttribute;
-  const rim = (k: number) => q.clone().addScaledVector(n.clone().applyAxisAngle(axis, (angle * k) / WEDGE_STEPS), WEDGE_R);
-  for (let k = 0; k < WEDGE_STEPS; k++) {
-    const a = rim(k);
-    const b = rim(k + 1);
-    pos.setXYZ(3 * k, q.x, q.y, q.z);
-    pos.setXYZ(3 * k + 1, a.x, a.y, a.z);
-    pos.setXYZ(3 * k + 2, b.x, b.y, b.z);
-  }
-  pos.needsUpdate = true;
+  setWedge(q, n, l, across);
   const res = params.grid;
   setPolyline(planeCell, cellOnPlane(desc.camera, PLANE_DISTANCE, res, x, y));
   setPolyline(screenCell, cellInPanel(SCREEN.center, SCREEN.height, res, x, y));
@@ -504,7 +665,8 @@ const gridLines = segments({ width: 1.5, opacity: 0.999 });
 stage.hud.add(gridLines);
 
 const params = { grid: 64 };
-ui.params.add(params, 'grid', 2, 64, 1).name('film resolution').onChange(restart);
+// On the pass slides it goes to 256, and a change jumps to the finished slide (see header).
+ui.params.add(params, 'grid', 2, IS_PASS ? 256 : 64, 1).name('film resolution').onChange(() => restart(true));
 
 /**
  * Per piece, per pixel: which of the SPP samples it covers (a bitmask), and
@@ -572,10 +734,14 @@ function composite(landed: number[], which: 'flat' | 'lit' | 'grey', out: Uint8A
   }
 }
 
-function restart(): void {
+function restart(jump = false): void {
   const res = params.grid;
   buildScreen(res);
   shownFill = '';
+  if (IS_PASS) {
+    restartPasses(jump);
+    return;
+  }
   const sampler = new IndependentSampler(0);
   const v3 = (u: { x: number; y: number; z: number }) => new THREE.Vector3(u.x, u.y, u.z);
   // Each piece rendered alone, the same rays for every piece: which samples
@@ -696,6 +862,7 @@ stage.frame((t) => {
   sceneLabel.position.set(...toHud(sceneTop), 0);
   if (SHADE === 'light') frameLight(t);
   else if (SHADE === 'trace') frameTrace(t);
+  else if (IS_PASS) framePass(t);
   else frameFlat(t);
 });
 
@@ -850,6 +1017,369 @@ function frameTrace(t: number): void {
   for (let k = 0; k < done; k++) filled[order[k]!] = 1;
   for (let i = 0; i < filled.length; i++) {
     for (let c = 0; c < 3; c++) pixels[i * 4 + c] = filled[i] ? litImage[i * 3 + c]! : BLANK;
+    pixels[i * 4 + 3] = 255;
+  }
+  screen.update(pixels);
+}
+
+// --- The pass slides ---------------------------------------------------------
+
+/** Where a pixel's centre sees the scene, and what each pass draws there. */
+interface PassCentre {
+  p: THREE.Vector3;
+  n: THREE.Vector3;
+  twoSided: boolean;
+  name: string;
+  /** shadow: where the shadow ray stops, or null if it reaches the light. */
+  block: THREE.Vector3 | null;
+  /** reflection (mirror pixels): where the reflected ray lands, or a point far along it if it leaves the box. */
+  land: THREE.Vector3 | null;
+  landName: string | null;
+  /** phong (shiny, lit points): the direction to the light reflected about the normal, and the highlight there. */
+  R: THREE.Vector3 | null;
+  h: number;
+}
+let passCentres: (PassCentre | null)[] = [];
+/** Per pass, its image; per pass, the combination of it and every pass before (sRGB bytes per pixel). */
+let passImages: Uint8Array[] = [];
+let combined: Uint8Array[] = [];
+let thumbs: FilmPanel[] = [];
+const thumbLabels = PASSES.map((name, j) =>
+  label(name, {
+    size: 0.055,
+    color: C.bone,
+    anchorX: 'center',
+    anchorY: 'top',
+    opacity: 0.999,
+    position: [thumbCenter(j)[0], THUMB.y - THUMB.height / 2 - 0.025, 0],
+  }),
+);
+if (IS_PASS) stage.hud.add(...thumbLabels);
+for (const l of thumbLabels) l.visible = false;
+
+const toV = (u: { x: number; y: number; z: number }) => new THREE.Vector3(u.x, u.y, u.z);
+const rgba = (img: Uint8Array) => {
+  const out = new Uint8ClampedArray((img.length / 3) * 4);
+  for (let i = 0; i < img.length / 3; i++) {
+    out.set(img.subarray(i * 3, i * 3 + 3), i * 4);
+    out[i * 4 + 3] = 255;
+  }
+  return out;
+};
+
+function restartPasses(jump: boolean): void {
+  const res = params.grid;
+  const n = res * res;
+  const scene = buildScene(desc, res, res);
+  const agg = scene.aggregate;
+  const sampler = new IndependentSampler(0);
+  const eyeV = new Vec3(eye.x, eye.y, eye.z);
+
+  // Every pass and every combination, per sample (the same rays for all),
+  // averaged in sRGB bytes as the other slides do.
+  passImages = PASSES.map(() => new Uint8Array(n * 3));
+  combined = PASSES.map(() => new Uint8Array(n * 3));
+  const m = PASSES.length;
+  const uses = PASSES.map((_, k) => new Set(PASSES.slice(0, k + 1)));
+  const sums = new Float64Array(2 * m * 3);
+  for (let y = 0; y < res; y++) {
+    for (let x = 0; x < res; x++) {
+      sums.fill(0);
+      for (let s = 0; s < SPP; s++) {
+        sampler.startPixelSample(pixelSeedKey(x, y, s));
+        const ray = cameraSample(scene, [x, y], sampler).ray;
+        const hit = agg.intersect(ray);
+        if (!hit) {
+          for (let k = 0; k < sums.length; k++) sums[k]! += BLANK;
+          continue;
+        }
+        const look = lookAt(agg, hit, eyeV);
+        const mirror = nameOf(hit) === MIRROR && PASSES.includes('reflection');
+        const r: RGB | null = mirror ? reflectedColour(agg, ray.d, hit) : null;
+        const add = (slot: number, rgb: readonly number[]) => {
+          for (let ch = 0; ch < 3; ch++) sums[slot * 3 + ch]! += srgbEncode(rgb[ch]!);
+        };
+        const grey = (x: number) => [x, x, x];
+        const value: Record<Pass, readonly number[]> = {
+          albedo: look.c,
+          brightness: grey(look.b),
+          shadow: grey(look.v),
+          phong: grey(look.h), // 0 on matte surfaces
+          reflection: r ?? [0, 0, 0], // black off the mirror
+        };
+        PASSES.forEach((q, k) => {
+          add(k, value[q]);
+          add(m + k, colourWith(look, uses[k]!, r));
+        });
+      }
+      const o = (y * res + x) * 3;
+      for (let k = 0; k < m; k++) {
+        for (let ch = 0; ch < 3; ch++) {
+          passImages[k]![o + ch] = sums[k * 3 + ch]! / SPP;
+          combined[k]![o + ch] = sums[(m + k) * 3 + ch]! / SPP;
+        }
+      }
+    }
+  }
+
+  // Where each pixel's centre sees the scene, for drawing its rays.
+  passCentres = [];
+  for (let y = 0; y < res; y++) {
+    for (let x = 0; x < res; x++) {
+      const ray = scene.camera.generateRay([x + 0.5, y + 0.5]);
+      const hit = agg.intersect(ray);
+      if (!hit) {
+        passCentres.push(null);
+        continue;
+      }
+      const name = nameOf(hit);
+      let block: THREE.Vector3 | null = null;
+      let land: THREE.Vector3 | null = null;
+      let landName: string | null = null;
+      if (pPass === 'shadow' && name !== 'light') {
+        const q = occlusionPoint(agg, { p: hit.p, ng: hit.ng }, LAMP_POINT);
+        block = q ? toV(q) : null;
+      }
+      let R: THREE.Vector3 | null = null;
+      let h = 0;
+      if (pPass === 'phong') {
+        const look = lookAt(agg, hit, eyeV);
+        h = look.h;
+        if (look.ks > 0 && look.b > 0) {
+          const nn = shadingNormal(toV(hit.p), toV(hit.ns).normalize(), isTwoSided(name));
+          const l = LAMP.clone().sub(toV(hit.p)).normalize();
+          R = nn.clone().multiplyScalar(2 * nn.dot(l)).sub(l);
+        }
+      }
+      if (pPass === 'reflection' && name === MIRROR) {
+        const { dir, land: h } = reflectedHit(agg, ray.d, hit);
+        land = h ? toV(h.p) : toV(hit.p.add(dir.scale(6)));
+        landName = h ? nameOf(h) : null;
+      }
+      passCentres.push({ p: toV(hit.p), n: toV(hit.ns).normalize(), twoSided: isTwoSided(name), name, block, land, landName, R, h });
+    }
+  }
+
+  // The slow rays, picked to show what this pass measures: from each group of
+  // pixels, the one nearest the group's middle. Then the rest, raster order
+  // (the reflection pass scans everything too, and is black off the mirror).
+  const pick = (keep: (c: PassCentre) => boolean): number | null => {
+    const group = passCentres.flatMap((c, i) => (c && keep(c) ? [i] : []));
+    if (!group.length) return null;
+    const mid = group.reduce((m, i) => m.add(passCentres[i]!.p), new THREE.Vector3()).multiplyScalar(1 / group.length);
+    return group.reduce((best, i) => (passCentres[i]!.p.distanceTo(mid) < passCentres[best]!.p.distanceTo(mid) ? i : best));
+  };
+  const ballShape = desc.primitives.find((q) => q.name === 'ball')!.shape;
+  if (ballShape.kind !== 'sphere') throw new Error('expected a sphere');
+  const top = new THREE.Vector3(...ballShape.center).add(new THREE.Vector3(0.1, 0.9, 0.5).normalize().multiplyScalar(ballShape.radius));
+  const ballTop = passCentres.reduce<number | null>(
+    (best, c, i) => (c?.name === 'ball' && (best === null || c.p.distanceTo(top) < passCentres[best]!.p.distanceTo(top)) ? i : best),
+    null,
+  );
+  const blockedBy = (c: PassCentre, ball: string) => {
+    if (!c.block) return false;
+    const s = desc.primitives.find((q) => q.name === ball)!.shape;
+    return s.kind === 'sphere' && Math.abs(c.block.distanceTo(new THREE.Vector3(...s.center)) - s.radius) < 1e-3;
+  };
+  // A pixel in a ball's shadow with a long shadow ray, so it is seen to stop
+  // at the ball (near the ball's foot the ray is a stub): the 80th
+  // percentile of shadow-ray length among the floor pixels it shadows.
+  const longBlocked = (ball: string): number | null => {
+    const group = passCentres.flatMap((c, i) => (c && c.name === 'floor' && blockedBy(c, ball) ? [i] : []));
+    if (!group.length) return null;
+    const len = (i: number) => passCentres[i]!.p.distanceTo(passCentres[i]!.block!);
+    group.sort((a, b) => len(a) - len(b));
+    return group[Math.floor(0.8 * (group.length - 1))]!;
+  };
+  const peak = (ball: string) =>
+    passCentres.reduce<number | null>((best, c, i) => (c?.name === ball && (best === null || c.h > passCentres[best]!.h) ? i : best), null);
+  const slow: (number | null)[] =
+    pPass === 'albedo'
+      ? [ballTop, pick((c) => c.name === 'left'), pick((c) => c.name === 'floor'), pick((c) => c.name === 'right'), pick((c) => c.name === MIRROR)]
+      : pPass === 'brightness'
+        ? [ballTop, pick((c) => c.name === 'floor'), pick((c) => c.name === 'back'), pick((c) => c.name === 'left'), pick((c) => c.name === MIRROR)]
+        : pPass === 'shadow'
+          ? [ballTop, longBlocked('ball'), pick((c) => c.name === 'floor' && !c.block), longBlocked(MIRROR), pick((c) => c.name === 'back' && !c.block)]
+          : pPass === 'phong'
+            ? // the brightest highlight on each ball, the middle of the white ball, and two matte surfaces (no highlight)
+              [peak('ball'), pick((c) => c.name === 'ball'), pick((c) => c.name === 'floor'), peak(MIRROR), pick((c) => c.name === 'back')]
+            : // reflection: mirror pixels, with two that are not the mirror and come back black
+            [
+              pick((c) => c.name === MIRROR && c.landName === 'left'),
+              pick((c) => c.name === 'floor'),
+              pick((c) => c.name === MIRROR && c.landName === 'ball'),
+              pick((c) => c.name === 'back'),
+              pick((c) => c.name === MIRROR && c.landName === 'floor'),
+            ];
+  const walk = [...new Set(slow.filter((i): i is number => i !== null))];
+  const scanned = (i: number) => passCentres[i] !== null;
+  order = [...walk, ...Array.from({ length: n }, (_, i) => i).filter((i) => scanned(i) && !walk.includes(i))];
+
+  // The row: every pass so far, this one included (it appears when it parks).
+  for (const t of thumbs) t.dispose();
+  thumbs = PASSES.slice(0, PASS_INDEX + 1).map((_, j) => {
+    const panel = new FilmPanel({ width: res, height: res, center: thumbCenter(j), drawnHeight: THUMB.height, border: true, opacity: 0.999 });
+    panel.update(rgba(passImages[j]!));
+    stage.hud.add(panel.group);
+    return panel;
+  });
+
+  stage.loop = false; // the finished slide holds
+  stage.duration = P_END + HOLD;
+  stage.t = jump ? P_END + 0.01 : 0;
+}
+
+/** A film panel's opacity, mesh and border together. */
+function panelOpacity(panel: FilmPanel, a: number): void {
+  panel.group.traverse((o) => {
+    const m = (o as THREE.Mesh).material as THREE.Material | undefined;
+    if (!m) return;
+    m.transparent = true;
+    m.opacity = 0.999 * a;
+  });
+  panel.group.visible = a > 0;
+}
+
+// The pass slides' extra rays: the shadow ray's stop, the reflected ray and where it lands.
+const blockDot = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 10), new THREE.MeshBasicMaterial({ color: C.rust, toneMapped: false }));
+const bounce = polyline([[0, 0, 0], [0, 0, 1]], { color: C.bone, width: 5 });
+const mirrored = polyline([[0, 0, 0], [0, 0, 1]], { color: C.ochreLight, width: 6 }); // phong: the light's direction, reflected
+const landDot = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 10), new THREE.MeshBasicMaterial({ color: C.bone, toneMapped: false }));
+for (const o of [blockDot, bounce, landDot, mirrored]) {
+  (o.material as THREE.Material).depthTest = false;
+  o.renderOrder = 6;
+  o.visible = false;
+  stage.add(o);
+}
+
+function framePass(t: number): void {
+  showCamera(1);
+  for (const piece of pieces) piece.shade.value = 0; // the 3D scene keeps its own shading (styleShortBox)
+  if (!screen || !pixels || !order.length || !combined.length) return;
+  const k = PASS_INDEX;
+  const res = params.grid;
+
+  // --- the scan: which ray is out, how far it and this pass's ray have got, how many pixels are filled
+  const step = P_STEP[pPass];
+  let current: number;
+  let reach = 1;
+  let probe = 1;
+  let arrived = true;
+  let done: number;
+  if (t < pSlowEnd) {
+    current = Math.floor((t - P_SCAN) / step);
+    const local = t - P_SCAN - current * step;
+    reach = smooth(Math.min(1, local / P_OUT));
+    arrived = local >= P_OUT;
+    probe = smooth(ramp(local, P_PROBE));
+    done = current < 0 ? 0 : current + (local >= P_FILL[pPass] ? 1 : 0);
+  } else {
+    const u = ramp(t, P_FAST);
+    done = TRACE_SLOW + Math.floor((order.length - TRACE_SLOW) * u * u);
+    current = Math.min(order.length - 1, done);
+  }
+  done = Math.min(done, order.length);
+  const live = current >= 0 && t >= P_SCAN && t < P_FAST[1]!;
+  const centre = live ? passCentres[order[current]!] : null;
+  ray.visible = !!centre;
+  probeGroup.visible = screenCell.visible = !!centre;
+  blockDot.visible = bounce.visible = landDot.visible = mirrored.visible = false;
+  if (centre) {
+    const i = order[current]!;
+    setPolyline(ray, [eye, eye.clone().lerp(centre.p, reach)]);
+    placeProbe(centre.p, centre.n, centre.twoSided, i % res, Math.floor(i / res));
+    planeCell.visible = true;
+    const lamp = centre.name === 'light';
+    probeDot.visible = arrived;
+    // brightness: the elbow, as trace draws it. The others show their own ray instead.
+    const elbow = pPass === 'brightness' && arrived && !lamp;
+    probeNormal.visible = probeArrow.visible = wedge.visible = probeToLamp.visible = elbow;
+    if (pPass === 'shadow' && !lamp) {
+      const from = centre.p.clone().addScaledVector(shadingNormal(centre.p, centre.n, centre.twoSided), 0.01);
+      setPolyline(probeToLamp, [from, from.clone().lerp(centre.block ?? lightPoint.position, Math.max(1e-3, probe))]);
+      probeToLamp.visible = arrived && probe > 0;
+      blockDot.visible = arrived && !!centre.block && probe >= 1;
+      if (centre.block) blockDot.position.copy(centre.block);
+    }
+    if (pPass === 'phong' && centre.R && arrived) {
+      // The normal and the line to the light, as brightness draws them; then
+      // the light's direction mirrored about the normal, and the angle
+      // between it and the way back to the eye. A matte point shows nothing.
+      const q = centre.p.clone().addScaledVector(shadingNormal(centre.p, centre.n, centre.twoSided), 0.01);
+      const toEye = eye.clone().sub(q).normalize();
+      probeNormal.visible = probeArrow.visible = probeToLamp.visible = true;
+      setPolyline(mirrored, [q, q.clone().addScaledVector(centre.R, 1.3 * Math.max(1e-3, probe))]);
+      mirrored.visible = probe > 0;
+      setWedge(q, centre.R, toEye, centre.n);
+      wedge.visible = probe >= 1;
+    }
+    if (pPass === 'reflection' && centre.land) {
+      setPolyline(bounce, [centre.p, centre.p.clone().lerp(centre.land, Math.max(1e-3, probe))]);
+      bounce.visible = arrived && probe > 0;
+      landDot.visible = arrived && probe >= 1 && centre.landName !== null;
+      landDot.position.copy(centre.land);
+    }
+  }
+
+  // --- the row: the passes before this one at home; this one parks; all fly onto the screen and combine
+  const screenScale = SCREEN.height / THUMB.height;
+  const [sx, sy] = SCREEN.center;
+  thumbs.forEach((panel, j) => {
+    const [hx, hy] = thumbCenter(j);
+    let x = hx;
+    let y = hy;
+    let scale = 1;
+    let opacity = 1;
+    if (j === k && t < P_PARK[1]!) {
+      // This pass: not there until the scan is done, then shrinks from the screen into its place.
+      const u = smooth(ramp(t, P_PARK));
+      opacity = t >= P_PARK[0]! ? 1 : 0;
+      x = sx + (hx - sx) * u;
+      y = sy + (hy - sy) * u;
+      scale = screenScale + (1 - screenScale) * u;
+    } else if (t >= P_STACK && t < P_HOME[1]!) {
+      const start = P_STACK + j * P_STACK_STAGGER;
+      const u = smooth(ramp(t, [start, start + P_STACK_EACH]));
+      x = hx + (sx - hx) * u;
+      y = hy + (sy - hy) * u;
+      scale = 1 + (screenScale - 1) * u;
+      // Merged into the combined image, then back in the row.
+      opacity = t < P_RESULT[1]! ? 1 - ramp(t, P_RESULT) : ramp(t, P_HOME);
+      if (t >= P_RESULT[1]!) {
+        x = hx;
+        y = hy;
+        scale = 1;
+      }
+    }
+    panel.group.position.set(x, y, 0.05 + 0.01 * j);
+    panel.group.scale.setScalar(scale);
+    panelOpacity(panel, opacity);
+  });
+  thumbLabels.forEach((l, j) => (l.visible = j < k || (j === k && t >= P_PARK[1]!)));
+
+  // --- the screen
+  gridLines.material.opacity = res <= 64 ? 0.999 * Math.min(1, 24 / res) : 0;
+  const prev = k > 0 ? combined[k - 1]! : null;
+  let key: string;
+  let fill: (i: number, ch: number) => number;
+  if (t < P_CLEAR[1]!) {
+    const a = ramp(t, P_CLEAR);
+    key = `clear ${Math.round(a * 24)}`;
+    fill = (i, ch) => (prev ? prev[i * 3 + ch]! + (BLANK - prev[i * 3 + ch]!) * a : BLANK);
+  } else if (t < P_PARK[0]!) {
+    const filled = new Uint8Array(res * res);
+    for (let m = 0; m < done; m++) filled[order[m]!] = 1;
+    key = `scan ${done}`;
+    fill = (i, ch) => (filled[i] ? passImages[k]![i * 3 + ch]! : BLANK);
+  } else {
+    const a = ramp(t, P_RESULT);
+    key = `result ${Math.round(a * 24)}`;
+    fill = (i, ch) => BLANK + (combined[k]![i * 3 + ch]! - BLANK) * a;
+  }
+  if (key === shownFill) return;
+  shownFill = key;
+  for (let i = 0; i < res * res; i++) {
+    for (let ch = 0; ch < 3; ch++) pixels[i * 4 + ch] = fill(i, ch);
     pixels[i * 4 + 3] = 255;
   }
   screen.update(pixels);
