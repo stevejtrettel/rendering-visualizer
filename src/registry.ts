@@ -93,6 +93,12 @@ export const INFO: Record<string, DemoInfo> = {
       "one-path for the whole film at once: every pixel's ray goes out in lockstep, the ones that land on the lamp fill with colour from the lamp end, and the rest stay dark. One real plain-PT sample per pixel: a noisy image, and a count of how few paths found the light.",
     section: 'Act 1 — one path',
   },
+  'whitted-room': {
+    title: "Whitted's room",
+    blurb:
+      "The talk's 1980s room, rendered by Whitted's tracer with every pass in: a closed room with a checkerboard floor, a matte ball, a blue mirror and a glass ball, seen from inside. Fills in top to bottom. &tiles=classic for red and yellow tiles.",
+    section: 'Act 1 — one path',
+  },
   rasterize: {
     title: 'Rasterization',
     blurb:

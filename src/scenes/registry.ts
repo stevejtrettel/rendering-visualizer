@@ -367,6 +367,52 @@ const LF_ROOM: SceneDescription = {
   ],
 };
 
+// The talk's 1980s room (Steve, 2026-11-03: "a scene that has all the
+// classic 1980s computer science components"; a box room, and we are in
+// it): a closed room 6 wide, 4 high, 6 deep, with cornell-short's walls and
+// lamp, a checkerboard floor (8 x 8 tiles of 0.75), and three balls: matte
+// white at the back left, the blue mirror at the back right, clear glass at
+// the front. The camera stands inside, near the front wall, at eye height.
+// Rendered by Whitted's tracer (whitted-room), and the path tracer can
+// render the same room. Two tile colourings to choose between: cream and
+// charcoal, or Whitted's own red and yellow (`-classic`).
+const ROOM_HALF = 3;
+const ROOM_TOP = 4;
+const TILES = 8;
+type Tint = readonly [number, number, number];
+function whittedRoom(tileA: Tint, tileB: Tint): SceneDescription {
+  const wall = (name: string) => CORNELL_SHORT.primitives.find((p) => p.name === name)!.material;
+  const H = ROOM_HALF;
+  const s = (2 * H) / TILES;
+  const tiles = Array.from({ length: TILES * TILES }, (_, k) => {
+    const i = k % TILES;
+    const j = Math.floor(k / TILES);
+    return {
+      name: `tile-${i}-${j}`,
+      shape: { kind: 'quad' as const, q: [-H + i * s, 0, -H + j * s] as [number, number, number], e1: [0, 0, s] as [number, number, number], e2: [s, 0, 0] as [number, number, number] },
+      material: { kind: 'lambert' as const, albedo: (i + j) % 2 ? tileB : tileA },
+    };
+  });
+  return {
+    camera: { eye: [0, 1.7, 2.7], lookAt: [0, 0.8, -1], up: [0, 1, 0], fovDegrees: 50 },
+    primitives: [
+      ...tiles,
+      // Edge order sets each wall's normal (e1 x e2) into the room.
+      { name: 'ceiling', shape: { kind: 'quad', q: [-H, ROOM_TOP, -H], e1: [2 * H, 0, 0], e2: [0, 0, 2 * H] }, material: wall('ceiling') },
+      { name: 'back', shape: { kind: 'quad', q: [-H, 0, -H], e1: [2 * H, 0, 0], e2: [0, ROOM_TOP, 0] }, material: wall('back') },
+      { name: 'front', shape: { kind: 'quad', q: [-H, 0, H], e1: [0, ROOM_TOP, 0], e2: [2 * H, 0, 0] }, material: wall('back') },
+      { name: 'left', shape: { kind: 'quad', q: [-H, 0, -H], e1: [0, ROOM_TOP, 0], e2: [0, 0, 2 * H] }, material: wall('left') },
+      { name: 'right', shape: { kind: 'quad', q: [H, 0, -H], e1: [0, 0, 2 * H], e2: [0, ROOM_TOP, 0] }, material: wall('right') },
+      CORNELL_SHORT.primitives.find((p) => p.name === 'light')!,
+      { name: 'ball', shape: { kind: 'sphere', center: [-1.4, 0.8, -1.4], radius: 0.8 }, material: wall('ball') },
+      { name: 'mirrorBall', shape: { kind: 'sphere', center: [1.3, 0.7, -1.2], radius: 0.7 }, material: { kind: 'mirror', f0: [0.35, 0.45, 0.8] } },
+      { name: 'glassBall', shape: { kind: 'sphere', center: [0.1, 0.6, 0.3], radius: 0.6 }, material: { kind: 'dielectric', ior: 1.5 } },
+    ],
+  };
+}
+const WHITTED_ROOM = whittedRoom([0.7592, 0.7257, 0.6863], [0.09, 0.09, 0.1]);
+const WHITTED_ROOM_CLASSIC = whittedRoom([0.85, 0.72, 0.12], [0.7, 0.08, 0.05]);
+
 export const SCENES = {
   cornell: CORNELL,
   'cornell-short': CORNELL_SHORT,
@@ -380,6 +426,8 @@ export const SCENES = {
   'door-ajar': doorAjarScene(),
   'open-stage': OPEN_STAGE,
   'material-row': MATERIAL_ROW,
+  'whitted-room': WHITTED_ROOM,
+  'whitted-room-classic': WHITTED_ROOM_CLASSIC,
   'material-test': materialTestScene({ kind: 'conductor', f0: [1.0, 0.77, 0.34], roughness: 0.25 }),
 } satisfies Record<string, SceneDescription>;
 
