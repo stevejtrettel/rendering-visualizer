@@ -35,6 +35,8 @@ const desc = SCENES[CLASSIC ? 'whitted-room-classic' : 'whitted-room'];
 const GREEN_MIRROR = Number(new URLSearchParams(location.search).get('greenMirror')) || 0;
 /** `&wallPhong=0.3`: the walls and floor get a Phong highlight too, a trial (Steve, 2026-11-03). */
 const WALL_PHONG = Number(new URLSearchParams(location.search).get('wallPhong')) || 0;
+/** `&wallPower=`: the walls' Phong power, lower than the balls' for a broad sheen (Steve: lower the Phong power on the walls). */
+const WALL_POWER = Number(new URLSearchParams(location.search).get('wallPower')) || 5;
 const SPP = 8; // antialiasing only
 const ALL = new Set(WHITTED_PASSES);
 const START = 0.5;
@@ -51,6 +53,8 @@ stage.loop = false;
 stage.duration = START + FILL + HOLD;
 
 const scene = buildScene(desc, 1, 1);
+/** Every wall and floor tile (the quads that are not the lamp). */
+const WALLS = desc.primitives.filter((p) => p.shape.kind === 'quad' && !p.emission).map((p) => p.name!);
 const { trace } = whittedTracer(desc, {
   agg: scene.aggregate,
   mirror: 'mirrorBall',
@@ -60,8 +64,9 @@ const { trace } = whittedTracer(desc, {
     ball: 0.5,
     mirrorBall: 0.5,
     glassBall: 0.5,
-    ...Object.fromEntries(WALL_PHONG > 0 ? desc.primitives.filter((p) => p.shape.kind === 'quad' && !p.emission).map((p) => [p.name, WALL_PHONG]) : []),
+    ...Object.fromEntries(WALL_PHONG > 0 ? WALLS.map((w) => [w, WALL_PHONG]) : []),
   },
+  power: Object.fromEntries(WALLS.map((w) => [w, WALL_POWER])),
 });
 
 // --- The image, computed a few rows at a time ---------------------------------

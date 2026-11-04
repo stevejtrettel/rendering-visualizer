@@ -69,6 +69,8 @@ export interface WhittedOptions {
   shininess?: number;
   /** Phong strength per primitive; 0 (matte) for any not listed. */
   ks?: Record<string, number>;
+  /** Phong power per primitive, where it differs from `shininess`. */
+  power?: Record<string, number>;
   maxDepth?: number;
 }
 
@@ -79,7 +81,7 @@ export const BLACK: RGB = [0, 0, 0];
  * are two-sided walls, the lamp); `opts.agg` is where the rays go.
  */
 export function whittedTracer(desc: SceneDescription, opts: WhittedOptions) {
-  const { agg, mirror = null, reflective = {}, glass = null, ior = 1.5, ambient = 0.2, shininess = 30, ks: KS = {}, maxDepth = 8 } = opts;
+  const { agg, mirror = null, reflective = {}, glass = null, ior = 1.5, ambient = 0.2, shininess = 30, ks: KS = {}, power = {}, maxDepth = 8 } = opts;
   const colours = surfaceColors(desc);
   const lampDesc = desc.primitives.find((p) => p.emission);
   if (!lampDesc || lampDesc.shape.kind !== 'quad') throw new Error('whittedTracer expects a quad lamp');
@@ -116,7 +118,7 @@ export function whittedTracer(desc: SceneDescription, opts: WhittedOptions) {
     const v = visible(agg, { p: hit.p, ng: hit.ng }, lampPoint) ? 1 : 0;
     const ks = KS[name] ?? 0;
     const R = n.scale(2 * cos).sub(l);
-    const h = ks > 0 && cos > 0 ? Math.max(0, R.dot(viewer.sub(hit.p).normalize())) ** shininess : 0;
+    const h = ks > 0 && cos > 0 ? Math.max(0, R.dot(viewer.sub(hit.p).normalize())) ** (power[name] ?? shininess) : 0;
     return { c, b, v, h, ks, lamp: false, glass: isGlassHere, kr };
   }
 

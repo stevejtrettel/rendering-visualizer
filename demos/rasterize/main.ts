@@ -208,6 +208,8 @@ const GLASS: string | null = GLASS_SWAP ? 'ballBlue' : null;
 const GREEN_MIRROR = Number(new URLSearchParams(location.search).get('greenMirror')) || 0;
 /** `&wallPhong=0.3`: a trial (Steve, 2026-11-03): the walls and floor get a Phong highlight too, this strong. */
 const WALL_PHONG = Number(new URLSearchParams(location.search).get('wallPhong')) || 0;
+/** `&wallPower=`: the walls' Phong power, lower than the balls' for a broad sheen (Steve: lower the Phong power on the walls). */
+const WALL_POWER = Number(new URLSearchParams(location.search).get('wallPower')) || 5;
 const IOR = 1.5;
 /** How many times a ray may bounce off the mirror or pass through the glass before it gives up (black). */
 const MAX_DEPTH = 8;
@@ -355,6 +357,7 @@ const LAMP_V = new Vec3(LAMP.x, LAMP.y, LAMP.z);
 const LAMP_POINT = { p: LAMP_V, ng: new Vec3(0, -1, 0) };
 /** The closed box, where shadow rays and every bounced ray go. */
 const aggClosed = buildScene(descClosed, 1, 1).aggregate;
+const WALLS = ['left', 'right', 'back', 'floor', 'ceiling', 'front'];
 const { nameOf, isGlass, reflects, lookAt, colourWith, passedOn, bouncePath } = whittedTracer(descClosed, {
   agg: aggClosed,
   mirror: MIRROR,
@@ -367,8 +370,9 @@ const { nameOf, isGlass, reflects, lookAt, colourWith, passedOn, bouncePath } = 
   ks: {
     ball: 0.5,
     ballBlue: 0.5,
-    ...Object.fromEntries(WALL_PHONG > 0 ? ['left', 'right', 'back', 'floor', 'ceiling', 'front'].map((w) => [w, WALL_PHONG]) : []),
+    ...Object.fromEntries(WALL_PHONG > 0 ? WALLS.map((w) => [w, WALL_PHONG]) : []),
   },
+  power: Object.fromEntries(WALLS.map((w) => [w, WALL_POWER])),
   maxDepth: MAX_DEPTH,
 });
 
