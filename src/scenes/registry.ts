@@ -369,44 +369,81 @@ const LF_ROOM: SceneDescription = {
 
 // The talk's 1980s room (Steve, 2026-11-03: "a scene that has all the
 // classic 1980s computer science components"; a box room, and we are in
-// it): a closed room 6 wide, 4 high, 6 deep, with cornell-short's walls and
-// lamp, a checkerboard floor (8 x 8 tiles of 0.75), and three balls: matte
-// white at the back left, the blue mirror at the back right, clear glass at
-// the front. The camera stands inside, near the front wall, at eye height.
-// Rendered by Whitted's tracer (whitted-room), and the path tracer can
-// render the same room. Two tile colourings to choose between: cream and
-// charcoal, or Whitted's own red and yellow (`-classic`).
-const ROOM_HALF = 3;
-const ROOM_TOP = 4;
-const TILES = 8;
+// it; then: we are too close, and there's not enough going on). A closed
+// room 6 wide, 4 high, 7.5 deep, with cornell-short's walls and lamp and a
+// checkerboard floor (tiles 0.75). In it: the matte white ball, the blue
+// mirror and the big glass ball as before; a framed mirror on the back
+// wall; a small clear mirror ball, a small glass ball, a shiny yellow ball;
+// and an orange cube turned 30 degrees. The camera stands inside, back near
+// the front wall, a little above eye height, looking down into the room.
+// Rendered by Whitted's tracer (whitted-room); the path tracer can render
+// the same room. Two tile colourings: cream and charcoal, or Whitted's red
+// and yellow (`-classic`).
+const ROOM = { x: 3, top: 4, back: -3, front: 4.5 };
+const TILE = 0.75;
 type Tint = readonly [number, number, number];
+type V3 = [number, number, number];
+/** An axis-turned box resting on the floor: six quads, normals outward. */
+function cube(name: string, centre: V3, side: number, turnDeg: number, material: MaterialDescription) {
+  const a = (turnDeg * Math.PI) / 180;
+  const h = side / 2;
+  const u: V3 = [side * Math.cos(a), 0, -side * Math.sin(a)]; // along the cube's own x
+  const w: V3 = [side * Math.sin(a), 0, side * Math.cos(a)]; // along its own z
+  const up: V3 = [0, side, 0];
+  const corner = (sx: number, sy: number, sz: number): V3 => [
+    centre[0] + (sx * u[0] + sz * w[0]) / 2,
+    centre[1] - h + (sy + 1) * h,
+    centre[2] + (sx * u[2] + sz * w[2]) / 2,
+  ];
+  const neg = (v: V3): V3 => [-v[0], -v[1], -v[2]];
+  const q = (n: string, o: V3, e1: V3, e2: V3) => ({ name: `${name}-${n}`, shape: { kind: 'quad' as const, q: o, e1, e2 }, material });
+  return [
+    q('top', corner(-1, 1, -1), w, u),
+    q('bottom', corner(-1, -1, -1), u, w),
+    q('front', corner(-1, -1, 1), u, up),
+    q('back', corner(1, -1, -1), neg(u), up),
+    q('left', corner(-1, -1, -1), w, up),
+    q('right', corner(1, -1, 1), neg(w), up),
+  ];
+}
 function whittedRoom(tileA: Tint, tileB: Tint): SceneDescription {
   const wall = (name: string) => CORNELL_SHORT.primitives.find((p) => p.name === name)!.material;
-  const H = ROOM_HALF;
-  const s = (2 * H) / TILES;
-  const tiles = Array.from({ length: TILES * TILES }, (_, k) => {
-    const i = k % TILES;
-    const j = Math.floor(k / TILES);
+  const { x: X, top: TOP, back: B, front: F } = ROOM;
+  const nx = Math.round((2 * X) / TILE);
+  const nz = Math.round((F - B) / TILE);
+  const tiles = Array.from({ length: nx * nz }, (_, k) => {
+    const i = k % nx;
+    const j = Math.floor(k / nx);
     return {
       name: `tile-${i}-${j}`,
-      shape: { kind: 'quad' as const, q: [-H + i * s, 0, -H + j * s] as [number, number, number], e1: [0, 0, s] as [number, number, number], e2: [s, 0, 0] as [number, number, number] },
+      shape: { kind: 'quad' as const, q: [-X + i * TILE, 0, B + j * TILE] as V3, e1: [0, 0, TILE] as V3, e2: [TILE, 0, 0] as V3 },
       material: { kind: 'lambert' as const, albedo: (i + j) % 2 ? tileB : tileA },
     };
   });
+  const D = F - B;
+  // The back wall's mirror, in a dark frame, standing just off the wall.
+  const M = { x0: -1.3, x1: 1.3, y0: 1.0, y1: 3.2, frame: 0.1 };
+  const FRAME = { kind: 'lambert' as const, albedo: [0.12, 0.09, 0.07] as const };
   return {
-    camera: { eye: [0, 1.7, 2.7], lookAt: [0, 0.8, -1], up: [0, 1, 0], fovDegrees: 50 },
+    camera: { eye: [0, 2.3, 4.2], lookAt: [0, 0.95, -1], up: [0, 1, 0], fovDegrees: 60 },
     primitives: [
       ...tiles,
       // Edge order sets each wall's normal (e1 x e2) into the room.
-      { name: 'ceiling', shape: { kind: 'quad', q: [-H, ROOM_TOP, -H], e1: [2 * H, 0, 0], e2: [0, 0, 2 * H] }, material: wall('ceiling') },
-      { name: 'back', shape: { kind: 'quad', q: [-H, 0, -H], e1: [2 * H, 0, 0], e2: [0, ROOM_TOP, 0] }, material: wall('back') },
-      { name: 'front', shape: { kind: 'quad', q: [-H, 0, H], e1: [0, ROOM_TOP, 0], e2: [2 * H, 0, 0] }, material: wall('back') },
-      { name: 'left', shape: { kind: 'quad', q: [-H, 0, -H], e1: [0, ROOM_TOP, 0], e2: [0, 0, 2 * H] }, material: wall('left') },
-      { name: 'right', shape: { kind: 'quad', q: [H, 0, -H], e1: [0, 0, 2 * H], e2: [0, ROOM_TOP, 0] }, material: wall('right') },
+      { name: 'ceiling', shape: { kind: 'quad', q: [-X, TOP, B], e1: [2 * X, 0, 0], e2: [0, 0, D] }, material: wall('ceiling') },
+      { name: 'back', shape: { kind: 'quad', q: [-X, 0, B], e1: [2 * X, 0, 0], e2: [0, TOP, 0] }, material: wall('back') },
+      { name: 'front', shape: { kind: 'quad', q: [-X, 0, F], e1: [0, TOP, 0], e2: [2 * X, 0, 0] }, material: wall('back') },
+      { name: 'left', shape: { kind: 'quad', q: [-X, 0, B], e1: [0, TOP, 0], e2: [0, 0, D] }, material: wall('left') },
+      { name: 'right', shape: { kind: 'quad', q: [X, 0, B], e1: [0, 0, D], e2: [0, TOP, 0] }, material: wall('right') },
+      { name: 'frame', shape: { kind: 'quad', q: [M.x0 - M.frame, M.y0 - M.frame, B + 0.01], e1: [M.x1 - M.x0 + 2 * M.frame, 0, 0], e2: [0, M.y1 - M.y0 + 2 * M.frame, 0] }, material: FRAME },
+      { name: 'wallMirror', shape: { kind: 'quad', q: [M.x0, M.y0, B + 0.02], e1: [M.x1 - M.x0, 0, 0], e2: [0, M.y1 - M.y0, 0] }, material: { kind: 'mirror', f0: [0.9, 0.9, 0.9] } },
       CORNELL_SHORT.primitives.find((p) => p.name === 'light')!,
-      { name: 'ball', shape: { kind: 'sphere', center: [-1.4, 0.8, -1.4], radius: 0.8 }, material: wall('ball') },
-      { name: 'mirrorBall', shape: { kind: 'sphere', center: [1.3, 0.7, -1.2], radius: 0.7 }, material: { kind: 'mirror', f0: [0.35, 0.45, 0.8] } },
-      { name: 'glassBall', shape: { kind: 'sphere', center: [0.1, 0.6, 0.3], radius: 0.6 }, material: { kind: 'dielectric', ior: 1.5 } },
+      { name: 'ball', shape: { kind: 'sphere', center: [-1.6, 0.8, -1.5], radius: 0.8 }, material: wall('ball') },
+      { name: 'mirrorBall', shape: { kind: 'sphere', center: [1.5, 0.7, -1.2], radius: 0.7 }, material: { kind: 'mirror', f0: [0.35, 0.45, 0.8] } },
+      { name: 'glassBall', shape: { kind: 'sphere', center: [0.1, 0.6, 0.5], radius: 0.6 }, material: { kind: 'dielectric', ior: 1.5 } },
+      { name: 'yellowBall', shape: { kind: 'sphere', center: [-1.5, 0.4, 0.9], radius: 0.4 }, material: { kind: 'lambert', albedo: [0.8, 0.6, 0.1] } },
+      { name: 'smallMirror', shape: { kind: 'sphere', center: [1.55, 0.35, 1.0], radius: 0.35 }, material: { kind: 'mirror', f0: [0.9, 0.9, 0.9] } },
+      { name: 'smallGlass', shape: { kind: 'sphere', center: [-0.5, 0.3, 1.35], radius: 0.3 }, material: { kind: 'dielectric', ior: 1.5 } },
+      ...cube('cube', [-0.15, 0.4, -1.9], 0.8, 30, { kind: 'lambert', albedo: [0.8, 0.35, 0.1] }),
     ],
   };
 }

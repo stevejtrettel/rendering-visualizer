@@ -62,8 +62,8 @@ export interface WhittedOptions {
    * untinted, as under a clear coat. Once the reflection pass is in.
    */
   reflective?: Record<string, number>;
-  /** The primitive treated as clear glass. */
-  glass?: string | null;
+  /** The primitive (or primitives) treated as clear glass. */
+  glass?: string | readonly string[] | null;
   ior?: number;
   ambient?: number;
   shininess?: number;
@@ -96,7 +96,8 @@ export function whittedTracer(desc: SceneDescription, opts: WhittedOptions) {
 
   const nameOf = (hit: Hit) => (hit.primitive as unknown as { name: string }).name;
   const isMirror = (hit: Hit) => mirror !== null && nameOf(hit) === mirror;
-  const isGlass = (hit: Hit) => glass !== null && nameOf(hit) === glass;
+  const glassNames = new Set(glass === null ? [] : typeof glass === 'string' ? [glass] : glass);
+  const isGlass = (hit: Hit) => glassNames.has(nameOf(hit));
   /** Partly reflective (see `reflective`). */
   const isGlossy = (hit: Hit) => (reflective[nameOf(hit)] ?? 0) > 0;
   /** Sends a ray on as a mirror does: the mirror, or a partly reflective surface. */
@@ -107,7 +108,7 @@ export function whittedTracer(desc: SceneDescription, opts: WhittedOptions) {
     const name = nameOf(hit);
     const col = colours.get(name)!;
     const c: RGB = [col.r, col.g, col.b];
-    const isGlassHere = name === glass;
+    const isGlassHere = glassNames.has(name);
     const kr = reflective[name] ?? 0;
     if (name === lampName) return { c, b: 1, v: 1, h: 0, ks: 0, lamp: true, glass: isGlassHere, kr: 0 };
     let n = hit.ns;

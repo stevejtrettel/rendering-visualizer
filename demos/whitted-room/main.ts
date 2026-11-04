@@ -54,16 +54,20 @@ stage.duration = START + FILL + HOLD;
 
 const scene = buildScene(desc, 1, 1);
 /** Every wall and floor tile (the quads that are not the lamp). */
-const WALLS = desc.primitives.filter((p) => p.shape.kind === 'quad' && !p.emission).map((p) => p.name!);
+const WALLS = desc.primitives.filter((p) => p.shape.kind === 'quad' && !p.emission && !p.name!.startsWith('cube') && p.name !== 'wallMirror').map((p) => p.name!);
 const { trace } = whittedTracer(desc, {
   agg: scene.aggregate,
-  mirror: 'mirrorBall',
-  reflective: GREEN_MIRROR > 0 ? { right: GREEN_MIRROR } : {},
-  glass: 'glassBall',
+  mirror: 'mirrorBall', // the blue one, tinted
+  // the clear mirrors, and the green wall if &greenMirror
+  reflective: { wallMirror: 0.9, smallMirror: 0.9, ...(GREEN_MIRROR > 0 ? { right: GREEN_MIRROR } : {}) },
+  glass: ['glassBall', 'smallGlass'],
   ks: {
     ball: 0.5,
     mirrorBall: 0.5,
     glassBall: 0.5,
+    yellowBall: 0.6,
+    smallMirror: 0.5,
+    smallGlass: 0.5,
     ...Object.fromEntries(WALL_PHONG > 0 ? WALLS.map((w) => [w, WALL_PHONG]) : []),
   },
   power: Object.fromEntries(WALLS.map((w) => [w, WALL_POWER])),
