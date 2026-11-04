@@ -206,6 +206,8 @@ const GLASS: string | null = GLASS_SWAP ? 'ballBlue' : null;
  * own shading + k what its mirror ray sees, once the reflection pass is in.
  */
 const GREEN_MIRROR = Number(new URLSearchParams(location.search).get('greenMirror')) || 0;
+/** `&wallPhong=0.3`: a trial (Steve, 2026-11-03): the walls and floor get a Phong highlight too, this strong. */
+const WALL_PHONG = Number(new URLSearchParams(location.search).get('wallPhong')) || 0;
 const IOR = 1.5;
 /** How many times a ray may bounce off the mirror or pass through the glass before it gives up (black). */
 const MAX_DEPTH = 8;
@@ -361,7 +363,12 @@ const { nameOf, isGlass, reflects, lookAt, colourWith, passedOn, bouncePath } = 
   ior: IOR,
   ambient: AMBIENT,
   shininess: 30, // Phong's exponent
-  ks: { ball: 0.5, ballBlue: 0.5 }, // the two balls shiny, the walls matte
+  // the two balls shiny, the walls matte (unless &wallPhong)
+  ks: {
+    ball: 0.5,
+    ballBlue: 0.5,
+    ...Object.fromEntries(WALL_PHONG > 0 ? ['left', 'right', 'back', 'floor', 'ceiling', 'front'].map((w) => [w, WALL_PHONG]) : []),
+  },
   maxDepth: MAX_DEPTH,
 });
 
