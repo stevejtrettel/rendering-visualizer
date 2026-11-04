@@ -69,6 +69,8 @@ export interface WhittedOptions {
   shininess?: number;
   /** Phong strength per primitive; 0 (matte) for any not listed. */
   ks?: Record<string, number>;
+  /** A surface whose colour varies over it (a checkerboard): its colour at p, or undefined to use the surface's own. */
+  albedoAt?: (name: string, p: Vec3) => RGB | undefined;
   /** Phong power per primitive, where it differs from `shininess`. */
   power?: Record<string, number>;
   maxDepth?: number;
@@ -81,7 +83,7 @@ export const BLACK: RGB = [0, 0, 0];
  * are two-sided walls, the lamp); `opts.agg` is where the rays go.
  */
 export function whittedTracer(desc: SceneDescription, opts: WhittedOptions) {
-  const { agg, mirror = null, reflective = {}, glass = null, ior = 1.5, ambient = 0.2, shininess = 30, ks: KS = {}, power = {}, maxDepth = 8 } = opts;
+  const { agg, mirror = null, reflective = {}, glass = null, ior = 1.5, ambient = 0.2, shininess = 30, ks: KS = {}, power = {}, albedoAt, maxDepth = 8 } = opts;
   const colours = surfaceColors(desc);
   const lampDesc = desc.primitives.find((p) => p.emission);
   if (!lampDesc || lampDesc.shape.kind !== 'quad') throw new Error('whittedTracer expects a quad lamp');
@@ -107,7 +109,7 @@ export function whittedTracer(desc: SceneDescription, opts: WhittedOptions) {
   function lookAt(hit: Hit, viewer: Vec3): Look {
     const name = nameOf(hit);
     const col = colours.get(name)!;
-    const c: RGB = [col.r, col.g, col.b];
+    const c: RGB = albedoAt?.(name, hit.p) ?? [col.r, col.g, col.b];
     const isGlassHere = glassNames.has(name);
     const kr = reflective[name] ?? 0;
     if (name === lampName) return { c, b: 1, v: 1, h: 0, ks: 0, lamp: true, glass: isGlassHere, kr: 0 };

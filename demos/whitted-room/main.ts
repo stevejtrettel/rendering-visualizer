@@ -24,7 +24,7 @@ import { cameraSample } from '@/core/integrators/estimators';
 import { IndependentSampler } from '@/core/sampler/independent';
 import { pixelSeedKey } from '@/core/sampler/sampler';
 import { srgbEncode } from '@/render/film';
-import { whittedTracer, WHITTED_PASSES } from '@/core/integrators/whitted';
+import { whittedTracer, WHITTED_PASSES, type RGB } from '@/core/integrators/whitted';
 import { FilmPanel } from '@/viz/film-panel';
 import { ASPECT } from '@/viz/stage';
 
@@ -37,7 +37,7 @@ const GREEN_MIRROR = Number(new URLSearchParams(location.search).get('greenMirro
 const WALL_PHONG = Number(new URLSearchParams(location.search).get('wallPhong')) || 0;
 /** `&wallPower=`: the walls' Phong power, lower than the balls' for a broad sheen (Steve: lower the Phong power on the walls). */
 const WALL_POWER = Number(new URLSearchParams(location.search).get('wallPower')) || 5;
-const SPP = 8; // antialiasing only
+const SPP = 4; // antialiasing only (8 doubled the time for edges that look the same)
 const ALL = new Set(WHITTED_PASSES);
 const START = 0.5;
 const FILL = 4; // seconds, top to bottom
@@ -52,11 +52,44 @@ stage.camera.position.set(0, 0, 5); // the figure is entirely the HUD
 stage.loop = false;
 stage.duration = START + FILL + HOLD;
 
-const scene = buildScene(desc, 1, 1);
-/** Every wall and floor tile (the quads that are not the lamp). */
-const WALLS = desc.primitives.filter((p) => p.shape.kind === 'quad' && !p.emission && !p.name!.startsWith('cube') && p.name !== 'wallMirror').map((p) => p.name!);
-const { trace } = whittedTracer(desc, {
+/**
+ * Speed: the tracer tests every ray against every primitive, and 80 of the
+ * room's 100 were floor tiles. So the tracer sees one floor quad instead,
+ * and colours it by which tile the point falls in: the same checkerboard,
+ * about 5x fewer tests per ray. (The scene keeps its tiles for the path
+ * tracer.)
+ */
+const traced = (() => {
+  const tiles = desc.primitives.filter((p) => p.name?.startsWith('tile-'));
+  const quads = tiles.map((p) => (p.shape.kind === 'quad' ? p.shape : null)!);
+  const size = quads[0]!.e1[2]; // tiles are square, e1 along z
+  const x0 = Math.min(...quads.map((q) => q.q[0]));
+  const z0 = Math.min(...quads.map((q) => q.q[2]));
+  const x1 = Math.max(...quads.map((q) => q.q[0])) + size;
+  const z1 = Math.max(...quads.map((q) => q.q[2])) + size;
+  const albedo = (name: string): RGB => {
+    const m = tiles.find((p) => p.name === name)!.material;
+    return m.kind === 'lambert' ? [m.albedo[0], m.albedo[1], m.albedo[2]] : [0.5, 0.5, 0.5];
+  };
+  const [A, B] = [albedo('tile-0-0'), albedo('tile-1-0')];
+  return {
+    desc: {
+      ...desc,
+      primitives: [
+        ...desc.primitives.filter((p) => !p.name?.startsWith('tile-')),
+        { name: 'floor', shape: { kind: 'quad' as const, q: [x0, 0, z0] as RGB, e1: [0, 0, z1 - z0] as RGB, e2: [x1 - x0, 0, 0] as RGB }, material: tiles[0]!.material },
+      ],
+    },
+    albedoAt: (name: string, p: { x: number; z: number }) =>
+      name === 'floor' ? ((Math.floor((p.x - x0) / size) + Math.floor((p.z - z0) / size)) % 2 ? B : A) : undefined,
+  };
+})();
+const scene = buildScene(traced.desc, 1, 1);
+/** Every wall and the floor (the quads that are not the lamp). */
+const WALLS = traced.desc.primitives.filter((p) => p.shape.kind === 'quad' && !p.emission && !p.name!.startsWith('cube') && p.name !== 'wallMirror').map((p) => p.name!);
+const { trace } = whittedTracer(traced.desc, {
   agg: scene.aggregate,
+  albedoAt: traced.albedoAt,
   mirror: 'mirrorBall', // the blue one, tinted
   // the clear mirrors, and the green wall if &greenMirror
   reflective: { wallMirror: 0.9, smallMirror: 0.9, ...(GREEN_MIRROR > 0 ? { right: GREEN_MIRROR } : {}) },
@@ -87,7 +120,7 @@ const sampler = new IndependentSampler(0);
 function restart(jump: boolean): void {
   height = Math.round(params.grid);
   width = Math.round(height * ASPECT);
-  camScene = buildScene(desc, width, height);
+  camScene = buildScene(traced.desc, width, height);
   image = new Uint8ClampedArray(width * height * 4);
   rowsDone = 0;
   shownRows = -1;
