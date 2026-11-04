@@ -31,6 +31,8 @@ import { ASPECT } from '@/viz/stage';
 // --- Figure spec -----------------------------------------------------------
 const CLASSIC = new URLSearchParams(location.search).get('tiles') === 'classic';
 const desc = SCENES[CLASSIC ? 'whitted-room-classic' : 'whitted-room'];
+/** `&greenMirror=0.25`: the green wall partly reflective, a trial (Steve, 2026-11-03). */
+const GREEN_MIRROR = Number(new URLSearchParams(location.search).get('greenMirror')) || 0;
 const SPP = 8; // antialiasing only
 const ALL = new Set(WHITTED_PASSES);
 const START = 0.5;
@@ -50,6 +52,7 @@ const scene = buildScene(desc, 1, 1);
 const { trace } = whittedTracer(desc, {
   agg: scene.aggregate,
   mirror: 'mirrorBall',
+  reflective: GREEN_MIRROR > 0 ? { right: GREEN_MIRROR } : {},
   glass: 'glassBall',
   ks: { ball: 0.5, mirrorBall: 0.5, glassBall: 0.5 },
 });

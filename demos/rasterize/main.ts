@@ -200,6 +200,12 @@ const IS_PASS = PASS_INDEX >= 0;
 const GLASS_SWAP = new URLSearchParams(location.search).has('glass');
 const MIRROR: string | null = GLASS_SWAP ? null : 'ballBlue'; // the passes' perfect mirror, tinted its own colour
 const GLASS: string | null = GLASS_SWAP ? 'ballBlue' : null;
+/**
+ * `&greenMirror=0.25`: a trial (Steve, 2026-11-03: what if we make the green
+ * wall slightly reflective too?). The green wall's colour becomes (1 - k) its
+ * own shading + k what its mirror ray sees, once the reflection pass is in.
+ */
+const GREEN_MIRROR = Number(new URLSearchParams(location.search).get('greenMirror')) || 0;
 const IOR = 1.5;
 /** How many times a ray may bounce off the mirror or pass through the glass before it gives up (black). */
 const MAX_DEPTH = 8;
@@ -347,9 +353,10 @@ const LAMP_V = new Vec3(LAMP.x, LAMP.y, LAMP.z);
 const LAMP_POINT = { p: LAMP_V, ng: new Vec3(0, -1, 0) };
 /** The closed box, where shadow rays and every bounced ray go. */
 const aggClosed = buildScene(descClosed, 1, 1).aggregate;
-const { nameOf, isMirror, isGlass, lookAt, colourWith, passedOn, bouncePath } = whittedTracer(descClosed, {
+const { nameOf, isGlass, reflects, lookAt, colourWith, passedOn, bouncePath } = whittedTracer(descClosed, {
   agg: aggClosed,
   mirror: MIRROR,
+  reflective: GREEN_MIRROR > 0 ? { right: GREEN_MIRROR } : {},
   glass: GLASS,
   ior: IOR,
   ambient: AMBIENT,
@@ -1081,7 +1088,7 @@ function restartPasses(jump: boolean): void {
         const look = lookAt(hit, eyeV);
         // What the mirror or the glass passes on, with every pass of the run.
         const r = passedOn(ray.d, hit, ALL_USE, 0);
-        const own: Pass | null = isMirror(hit) ? 'reflection' : isGlass(hit) ? 'refraction' : null;
+        const own: Pass | null = reflects(hit) ? 'reflection' : isGlass(hit) ? 'refraction' : null;
         const add = (slot: number, rgb: readonly number[]) => {
           for (let ch = 0; ch < 3; ch++) sums[slot * 3 + ch]! += srgbEncode(rgb[ch]!);
         };
@@ -1138,7 +1145,7 @@ function restartPasses(jump: boolean): void {
           R = nn.clone().multiplyScalar(2 * nn.dot(l)).sub(l);
         }
       }
-      if ((pPass === 'reflection' && isMirror(hit)) || (pPass === 'refraction' && isGlass(hit))) {
+      if ((pPass === 'reflection' && reflects(hit)) || (pPass === 'refraction' && isGlass(hit))) {
         const b = bouncePath(ray.d, hit);
         path = b.pts.map(toV);
         landName = b.landName;
@@ -1197,7 +1204,7 @@ function restartPasses(jump: boolean): void {
                   pick((c) => c.name === 'floor'),
                   pick((c) => c.name === MIRROR && c.landName === 'ball'),
                   pick((c) => c.name === 'back'),
-                  pick((c) => c.name === MIRROR && c.landName === 'floor'),
+                  GREEN_MIRROR > 0 ? pick((c) => c.name === 'right' && c.landName === 'ball') ?? pick((c) => c.name === 'right') : pick((c) => c.name === MIRROR && c.landName === 'floor'),
                 ]
               : // refraction: glass pixels that see three different things through it, and two that are not the glass and come back black
                 (() => {

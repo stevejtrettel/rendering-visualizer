@@ -47,6 +47,8 @@ export interface Look {
   lamp: boolean;
   /** The glass: clear, so what passes through it is not tinted. */
   glass: boolean;
+  /** A partly reflective surface's share of reflection (0 for none; the perfect mirror is not counted here). */
+  kr: number;
 }
 
 export interface WhittedOptions {
@@ -54,6 +56,12 @@ export interface WhittedOptions {
   agg: Aggregate;
   /** The primitive treated as a perfect mirror, tinted its own colour. */
   mirror?: string | null;
+  /**
+   * Partly reflective surfaces, each with its share of reflection kr: the
+   * colour is (1 - kr) (its own shading) + kr (what its mirror ray sees),
+   * untinted, as under a clear coat. Once the reflection pass is in.
+   */
+  reflective?: Record<string, number>;
   /** The primitive treated as clear glass. */
   glass?: string | null;
   ior?: number;
@@ -71,7 +79,7 @@ export const BLACK: RGB = [0, 0, 0];
  * are two-sided walls, the lamp); `opts.agg` is where the rays go.
  */
 export function whittedTracer(desc: SceneDescription, opts: WhittedOptions) {
-  const { agg, mirror = null, glass = null, ior = 1.5, ambient = 0.2, shininess = 30, ks: KS = {}, maxDepth = 8 } = opts;
+  const { agg, mirror = null, reflective = {}, glass = null, ior = 1.5, ambient = 0.2, shininess = 30, ks: KS = {}, maxDepth = 8 } = opts;
   const colours = surfaceColors(desc);
   const lampDesc = desc.primitives.find((p) => p.emission);
   if (!lampDesc || lampDesc.shape.kind !== 'quad') throw new Error('whittedTracer expects a quad lamp');
@@ -87,6 +95,10 @@ export function whittedTracer(desc: SceneDescription, opts: WhittedOptions) {
   const nameOf = (hit: Hit) => (hit.primitive as unknown as { name: string }).name;
   const isMirror = (hit: Hit) => mirror !== null && nameOf(hit) === mirror;
   const isGlass = (hit: Hit) => glass !== null && nameOf(hit) === glass;
+  /** Partly reflective (see `reflective`). */
+  const isGlossy = (hit: Hit) => (reflective[nameOf(hit)] ?? 0) > 0;
+  /** Sends a ray on as a mirror does: the mirror, or a partly reflective surface. */
+  const reflects = (hit: Hit) => isMirror(hit) || isGlossy(hit);
 
   /** At a hit seen from `viewer` (a wall is two-sided: its normal turned to the viewer's side). */
   function lookAt(hit: Hit, viewer: Vec3): Look {
@@ -94,7 +106,8 @@ export function whittedTracer(desc: SceneDescription, opts: WhittedOptions) {
     const col = colours.get(name)!;
     const c: RGB = [col.r, col.g, col.b];
     const isGlassHere = name === glass;
-    if (name === lampName) return { c, b: 1, v: 1, h: 0, ks: 0, lamp: true, glass: isGlassHere };
+    const kr = reflective[name] ?? 0;
+    if (name === lampName) return { c, b: 1, v: 1, h: 0, ks: 0, lamp: true, glass: isGlassHere, kr: 0 };
     let n = hit.ns;
     if (twoSided.has(name) && n.dot(viewer.sub(hit.p)) < 0) n = n.neg();
     const l = lampV.sub(hit.p).normalize();
@@ -104,7 +117,7 @@ export function whittedTracer(desc: SceneDescription, opts: WhittedOptions) {
     const ks = KS[name] ?? 0;
     const R = n.scale(2 * cos).sub(l);
     const h = ks > 0 && cos > 0 ? Math.max(0, R.dot(viewer.sub(hit.p).normalize())) ** shininess : 0;
-    return { c, b, v, h, ks, lamp: false, glass: isGlassHere };
+    return { c, b, v, h, ks, lamp: false, glass: isGlassHere, kr };
   }
 
   /** The colour where a ray lands, with the passes in `use`; `passed` is what the mirror or glass passes on (null elsewhere). */
@@ -113,7 +126,14 @@ export function whittedTracer(desc: SceneDescription, opts: WhittedOptions) {
     const v = use.has('shadow') ? look.v : 1;
     const diffuse = use.has('brightness') ? ambient + (1 - ambient) * look.b * v : use.has('shadow') ? ambient + (1 - ambient) * v : 1;
     const spec = use.has('phong') ? look.ks * look.h * v : 0;
-    const base = passed ? (look.glass ? passed : look.c.map((x, ch) => x * passed[ch]!)) : look.c.map((x) => x * diffuse);
+    const own = look.c.map((x) => x * diffuse);
+    const base = !passed
+      ? own
+      : look.glass
+        ? passed
+        : look.kr > 0
+          ? own.map((x, ch) => (1 - look.kr) * x + look.kr * passed[ch]!)
+          : look.c.map((x, ch) => x * passed[ch]!);
     return [base[0]! + spec * lampColour[0], base[1]! + spec * lampColour[1], base[2]! + spec * lampColour[2]];
   }
 
@@ -145,7 +165,7 @@ export function whittedTracer(desc: SceneDescription, opts: WhittedOptions) {
    * d (null anywhere else, or before its pass is in).
    */
   function passedOn(d: Vec3, hit: Hit, use: ReadonlySet<WhittedPass>, depth: number): RGB | null {
-    if (isMirror(hit) && use.has('reflection')) {
+    if (reflects(hit) && use.has('reflection')) {
       const dir = reflectDir(d, hit.ns);
       return seen(dir, cast(hit, dir), use, depth + 1);
     }
@@ -166,7 +186,7 @@ export function whittedTracer(desc: SceneDescription, opts: WhittedOptions) {
     let cur = hit;
     let dir = d;
     for (let depth = 0; depth < maxDepth; depth++) {
-      if (isMirror(cur)) dir = reflectDir(dir, cur.ns);
+      if (reflects(cur)) dir = reflectDir(dir, cur.ns);
       else if (isGlass(cur)) {
         const g = glassAt(dir, cur);
         dir = g.through ?? g.off;
@@ -188,5 +208,5 @@ export function whittedTracer(desc: SceneDescription, opts: WhittedOptions) {
     return colourWith(lookAt(hit, ray.o), use, passedOn(ray.d, hit, use, 0));
   }
 
-  return { nameOf, isMirror, isGlass, lookAt, colourWith, passedOn, bouncePath, trace, lampColour };
+  return { nameOf, isMirror, isGlass, isGlossy, reflects, lookAt, colourWith, passedOn, bouncePath, trace, lampColour };
 }
