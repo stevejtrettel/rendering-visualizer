@@ -1202,8 +1202,8 @@ function restartPasses(jump: boolean): void {
         : pPass === 'shadow'
           ? [ballTop, longBlocked('ball'), pick((c) => c.name === 'floor' && !c.block), longBlocked('ballBlue'), pick((c) => c.name === 'back' && !c.block)]
           : pPass === 'phong'
-            ? // the brightest highlight on each ball, the middle of the white ball, and two matte surfaces (no highlight)
-              [peak('ball'), pick((c) => c.name === 'ball'), pick((c) => c.name === 'floor'), peak('ballBlue'), pick((c) => c.name === 'back')]
+            ? // the brightest highlight on each ball, the middle of the white ball, and two matte surfaces (no highlight); with &wallPhong, the back wall's brightest instead
+              [peak('ball'), pick((c) => c.name === 'ball'), pick((c) => c.name === 'floor'), peak('ballBlue'), WALL_PHONG > 0 ? peak('back') : pick((c) => c.name === 'back')]
             : pPass === 'reflection'
               ? // mirror pixels, with two that are not the mirror and come back black
                 [
